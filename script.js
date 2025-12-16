@@ -62,7 +62,22 @@ async function startRecording() {
     let pipWindow = null;
 
     try {
-        // 1. Initialize Facecam PiP Window immediately (requires user gesture)
+        // 1. Get the output file handle FIRST to ensure efficient recording
+        if ('showSaveFilePicker' in window) {
+            try {
+                fileHandle = await getOutputFileHandle();
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    console.log("User cancelled file picker.");
+                    return;
+                } else {
+                    console.warn("File Picker failed, falling back to download:", err);
+                    fileHandle = null;
+                }
+            }
+        }
+
+        // 2. Initialize Facecam PiP Window
         if (facecamToggle.checked && 'documentPictureInPicture' in window) {
             try {
                 pipWindow = await window.documentPictureInPicture.requestWindow({
@@ -98,11 +113,11 @@ async function startRecording() {
                 window.currentPiPWindow = pipWindow;
 
             } catch (err) {
-                console.warn("Failed to open Document PiP window:", err);
+                console.warn("Failed to open Document PiP window (likely activation consumed):", err);
             }
         }
 
-        // 2. Get Audio/Video permissions
+        // 3. Get Audio/Video permissions
         if (facecamToggle.checked) {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
@@ -121,30 +136,6 @@ async function startRecording() {
                 audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             } catch (err) {
                 console.warn("Could not get microphone audio. Recording without audio.", err);
-            }
-        }
-
-        // 3. Get the output file handle before showing the screen picker
-        if ('showSaveFilePicker' in window) {
-            try {
-                fileHandle = await getOutputFileHandle();
-            } catch (err) {
-                if (err.name === 'AbortError') {
-                    // User cancelled the file picker - stop everything
-                    console.log("User cancelled file picker.");
-                    if (audioStream) audioStream.getTracks().forEach(track => track.stop());
-                    if (facecamStream) facecamStream.getTracks().forEach(track => track.stop());
-                    if (pipWindow) {
-                        pipWindow.close();
-                        window.currentPiPWindow = null;
-                    }
-                    return;
-                } else {
-                    // Other error (e.g. SecurityError due to activation consumption)
-                    // Log warning and proceed to fallback recording (Blob download)
-                    console.warn("File Picker failed (likely permission/activation issue), falling back to download:", err);
-                    fileHandle = null;
-                }
             }
         }
 
@@ -191,43 +182,15 @@ async function startRecording() {
                 facecamVideo.style.position = 'static';
                 facecamVideo.style.width = '100%';
                 facecamVideo.style.height = '100%';
-                facecamVideo.style.maxWidth = '100vw';
-                facecamVideo.style.maxHeight = '100vh';
-                facecamVideo.style.borderRadius = '0'; // Let the window shape dictate, or keep 50% if user wants circle inside square window? 
-                // User asked for style maintenance. The style puts a border and radius.
-                // Let's keep the class/ID styles but override positioning.
-                // However, ID #facecamVideo has fixed position. We need to override it.
-                facecamVideo.style.position = 'static';
-
-                // IMPORTANT: The user mentioned "maintain the thumbnail size". 
-                // If we make the window small (170x170), filling it should be good.
-                // But the CSS has specific width/height: 150px.
-                // Let's just append it.
+                facecamVideo.style.borderRadius = '0';
 
                 pipWindow.document.body.appendChild(facecamVideo);
 
-                // Facecam video ID styles might conflict if we copied stylesheets.
-                // #facecamVideo { position: fixed ... }
-                // We must override this on the element itself or injection.
                 facecamVideo.style.setProperty('position', 'static', 'important');
                 facecamVideo.style.setProperty('width', '100%', 'important');
                 facecamVideo.style.setProperty('height', '100%', 'important');
-                facecamVideo.style.setProperty('border-radius', '0', 'important'); // Make it fill window? Or keep circle?
-                // User said "style missing... maintain the thumbnail size".
-                // Existing style: width 150px, height 150px, border-radius 50%, border 3px solid blue.
-                // If we put this in a 170x170 window:
-                // If we want it to look like the circle, we should probably keep border-radius 0 on the VIDEO and let the user just see the video content, OR keep the circle style and have transparent background in window.
-                // Let's try to match the circle look.
-                facecamVideo.style.setProperty('width', '100%', 'important');
-                facecamVideo.style.setProperty('height', '100%', 'important');
                 facecamVideo.style.setProperty('border-radius', '0', 'important');
-                facecamVideo.style.setProperty('border', 'none', 'important');
-
-                // Actually, for "Picture in Picture", usually you just want the video rect.
-                // But the user specifically mentioned "style missing".
-                // Let's give it the blue border at least.
                 facecamVideo.style.setProperty('border', '3px solid #007aff', 'important');
-
 
             } else {
                 facecamVideo.style.top = `${window.innerHeight - 170}px`;
@@ -257,7 +220,7 @@ async function startRecording() {
         if (fileHandle) {
             await startRecordingWithFileSystemAccess(fileHandle);
         } else {
-            // Fallback for other browsers (Firefox/Safari)
+            // Fallback for other browsers (Firefox/Safari) or if picker failed
             startRecordingWithFallback();
         }
 
@@ -267,6 +230,10 @@ async function startRecording() {
         if (audioStream) audioStream.getTracks().forEach(track => track.stop());
         if (facecamStream) facecamStream.getTracks().forEach(track => track.stop());
         if (stream) stream.getTracks().forEach(track => track.stop());
+        if (pipWindow) {
+            pipWindow.close();
+            window.currentPiPWindow = null;
+        }
     }
 }
 
