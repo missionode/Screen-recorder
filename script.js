@@ -9,6 +9,7 @@ let recordedChunks = [];
 let writableStream = null;
 let facecamStream = null;
 let facecamVideo = null;
+let startTime;
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 
@@ -285,19 +286,35 @@ async function getOutputFileHandle() {
 
 async function startRecordingWithFileSystemAccess(fileHandle) {
     try {
+        recordedChunks = [];
+        startTime = Date.now();
         writableStream = await fileHandle.createWritable();
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
 
-        mediaRecorder.ondataavailable = async (event) => {
-            if (event.data.size > 0 && writableStream) {
-                await writableStream.write(event.data);
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
             }
         };
 
         mediaRecorder.onstop = async () => {
-            if (writableStream) {
-                await writableStream.close();
-                writableStream = null;
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            
+            try {
+                const fixedBlob = await makeSeekable(blob);
+                if (writableStream) {
+                    await writableStream.write(fixedBlob);
+                    await writableStream.close();
+                    writableStream = null;
+                }
+            } catch (err) {
+                console.error("Error fixing seekability:", err);
+                // Fallback to original blob if fixing fails
+                if (writableStream) {
+                    await writableStream.write(blob);
+                    await writableStream.close();
+                    writableStream = null;
+                }
             }
             saveRecordingToList(fileHandle.name);
         };
@@ -309,14 +326,16 @@ async function startRecordingWithFileSystemAccess(fileHandle) {
 
     } catch (err) {
         console.error("File System Access API error: ", err);
-        alert("File System Access API error: ", err)
-        // Stop the stream if user cancels the save dialog
-        stream.getTracks().forEach(track => track.stop());
+        alert("File System Access API error: " + err.message);
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
     }
 }
 
 function startRecordingWithFallback() {
     recordedChunks = [];
+    startTime = Date.now();
     mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
 
     mediaRecorder.ondataavailable = (event) => {
@@ -325,8 +344,19 @@ function startRecordingWithFallback() {
         }
     };
 
-    mediaRecorder.onstop = () => {
+    mediaRecorder.onstop = async () => {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        
+        try {
+            const fixedBlob = await makeSeekable(blob);
+            downloadBlob(fixedBlob);
+        } catch (err) {
+            console.error("Error fixing seekability:", err);
+            downloadBlob(blob);
+        }
+    };
+
+    function downloadBlob(blob) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         const fileName = `recording-${new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')}.webm`;
@@ -334,15 +364,47 @@ function startRecordingWithFallback() {
         a.download = fileName;
         document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }, 100);
         saveRecordingToList(fileName);
-    };
+    }
 
     mediaRecorder.start(1000);
     isRecording = true;
     toggleRecordingBtn.textContent = 'Stop Recording';
     toggleRecordingBtn.classList.add('recording');
+}
+
+async function makeSeekable(blob) {
+    if (typeof EBML === 'undefined') {
+        console.warn('EBML library not loaded. Cannot fix seekability.');
+        return blob;
+    }
+
+    const decoder = new EBML.Decoder();
+    const reader = new EBML.Reader();
+    reader.logging = false;
+    reader.drop_default_duration = false;
+
+    const buffer = await blob.arrayBuffer();
+    const ebmlElms = decoder.decode(buffer);
+
+    ebmlElms.forEach((elm) => {
+        reader.read(elm);
+    });
+
+    reader.stop();
+
+    const refinedMetadataBuf = EBML.tools.makeMetadataSeekable(
+        reader.metadatas,
+        reader.duration,
+        reader.cues
+    );
+
+    const body = buffer.slice(reader.metadataSize);
+    return new Blob([refinedMetadataBuf, body], { type: blob.type });
 }
 
 function stopRecording() {
