@@ -13,6 +13,9 @@ const settingsButton = document.getElementById('settingsButton');
 const settingsPanel = document.getElementById('settingsPanel');
 const closeSettingsButton = document.getElementById('closeSettingsButton');
 const panelBackdrop = document.getElementById('panelBackdrop');
+const logoHistorySection = document.getElementById('logoHistorySection');
+const logoHistoryGrid = document.getElementById('logoHistoryGrid');
+const clearLogoHistoryButton = document.getElementById('clearLogoHistoryButton');
 
 let isRecording = false;
 let mediaRecorder;
@@ -25,6 +28,7 @@ let startTime;
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
+const MAX_LOGO_HISTORY = 8;
 
 function setSettingsOpen(isOpen) {
     settingsPanel.classList.toggle('open', isOpen);
@@ -52,6 +56,11 @@ function loadCustomization() {
     if (saved.title) heroTitle.textContent = saved.title;
     if (saved.subtitle) heroSubtitle.textContent = saved.subtitle;
     if (saved.logo) showLogo(saved.logo);
+    if (saved.logo && !saved.logoHistory?.includes(saved.logo)) {
+        saved.logoHistory = [saved.logo, ...(saved.logoHistory || [])].slice(0, MAX_LOGO_HISTORY);
+        localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
+    }
+    renderLogoHistory();
 }
 
 function saveCustomization() {
@@ -89,8 +98,16 @@ logoInput.addEventListener('change', () => {
     reader.onload = () => {
         const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
         saved.logo = reader.result;
-        localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
+        saved.logoHistory = [reader.result, ...(saved.logoHistory || []).filter(logo => logo !== reader.result)]
+            .slice(0, MAX_LOGO_HISTORY);
+        try {
+            localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
+        } catch (error) {
+            alert('There is not enough browser storage for this logo. Try a smaller image or clear your logo history.');
+            return;
+        }
         showLogo(reader.result);
+        renderLogoHistory();
     };
     reader.readAsDataURL(file);
 });
@@ -104,6 +121,7 @@ removeLogoButton.addEventListener('click', () => {
     logoUploadButton.classList.remove('hidden');
     removeLogoButton.hidden = true;
     logoInput.value = '';
+    renderLogoHistory();
 });
 
 function showLogo(source) {
@@ -111,7 +129,43 @@ function showLogo(source) {
     brandLogo.classList.add('visible');
     logoUploadButton.classList.add('hidden');
     removeLogoButton.hidden = false;
+    renderLogoHistory();
 }
+
+function renderLogoHistory() {
+    const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
+    const history = saved.logoHistory || [];
+    logoHistorySection.hidden = history.length === 0;
+    logoHistoryGrid.innerHTML = '';
+
+    history.forEach((source, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `saved-logo${saved.logo === source ? ' active' : ''}`;
+        button.setAttribute('aria-label', `Use recent logo ${index + 1}`);
+        const image = document.createElement('img');
+        image.src = source;
+        image.alt = '';
+        button.appendChild(image);
+        button.addEventListener('click', () => selectSavedLogo(source));
+        logoHistoryGrid.appendChild(button);
+    });
+}
+
+function selectSavedLogo(source) {
+    const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
+    saved.logo = source;
+    saved.logoHistory = [source, ...(saved.logoHistory || []).filter(logo => logo !== source)];
+    localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
+    showLogo(source);
+}
+
+clearLogoHistoryButton.addEventListener('click', () => {
+    const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
+    saved.logoHistory = saved.logo ? [saved.logo] : [];
+    localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
+    renderLogoHistory();
+});
 
 toggleRecordingBtn.addEventListener('click', () => {
     if (isRecording) {
