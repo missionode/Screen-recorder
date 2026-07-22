@@ -3,29 +3,91 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A simple, private screen recorder that works in your browser.">
     <title>Screen Recorder</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:,">
 </head>
 <body>
-    <div class="container">
-        <h1>Screen Recorder</h1>
-        <p>Record your screen directly from your browser. Recordings are saved to your computer.</p>
-        <div class="controls">
-            <button id="toggleRecording">Record Screen</button>
-            <div class="options">
-                <input type="checkbox" id="facecamToggle">
-                <label for="facecamToggle">Enable Facecam</label>
+    <main class="app-shell">
+        <section class="hero" aria-labelledby="heroTitle">
+            <div class="slide" aria-label="Customizable recording cover">
+                <div class="slide-glow slide-glow-one"></div>
+                <div class="slide-glow slide-glow-two"></div>
+
+                <div class="slide-content">
+                    <span class="privacy-note"><span class="privacy-dot"></span> Private by design</span>
+                    <div class="logo-area">
+                        <img id="brandLogo" alt="Your logo">
+                        <button class="logo-placeholder" id="logoUploadButton" type="button">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>
+                            <span>Add your logo</span>
+                        </button>
+                        <input id="logoInput" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
+                    </div>
+
+                    <p class="eyebrow">Create · Share · Inspire</p>
+                    <h1 id="heroTitle" contenteditable="true" spellcheck="true" data-placeholder="Add a title">Turn your ideas into moments worth sharing.</h1>
+                    <p class="hero-subtitle" id="heroSubtitle" contenteditable="true" spellcheck="true" data-placeholder="Add a subtitle">Capture your screen, tell your story, and share your best work—right from your browser.</p>
+
+                    <div class="controls">
+                        <button id="toggleRecording" type="button">
+                            <span class="record-icon" aria-hidden="true"></span>
+                            <span class="record-label">Record screen</span>
+                        </button>
+                        <label class="facecam-option" for="facecamToggle">
+                            <input type="checkbox" id="facecamToggle">
+                            <span class="toggle" aria-hidden="true"></span>
+                            <span>Enable facecam</span>
+                        </label>
+                    </div>
+                    <p class="local-note">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.9 8.5 7 10 4.1-1.5 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+                        Recordings stay on your computer
+                    </p>
+                </div>
+
+                <span class="slide-number">01</span>
+                <button class="settings-button" id="settingsButton" type="button" aria-label="Open settings" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+                </button>
             </div>
-        </div>
-        <div class="recording-list">
-            <h2>Past Recordings</h2>
-            <ul id="recordingList">
-                <!-- Recordings will be listed here -->
-            </ul>
-        </div>
+
+            <div class="panel-backdrop" id="panelBackdrop" hidden></div>
+            <aside class="side-panel" id="settingsPanel" aria-label="Settings" aria-hidden="true">
+                <div class="panel-header">
+                    <h2>Settings</h2>
+                    <button class="panel-close" id="closeSettingsButton" type="button" aria-label="Close settings">×</button>
+                </div>
+                <section class="customize-card">
+                    <div class="section-heading">
+                        <div>
+                            <p class="panel-kicker">Cover</p>
+                            <h2>Customize your cover</h2>
+                        </div>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3Z"/><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z"/></svg>
+                    </div>
+                    <p>Click the title or subtitle to edit it. Your changes save automatically.</p>
+                    <div class="logo-actions">
+                        <button id="changeLogoButton" class="secondary-button" type="button">Upload logo</button>
+                        <button id="removeLogoButton" class="text-button" type="button" hidden>Remove</button>
+                    </div>
+                </section>
+
+                <section class="recording-list">
+                    <div class="recordings-heading">
+                        <div>
+                            <p class="panel-kicker">Library</p>
+                            <h2>Past recordings</h2>
+                        </div>
+                        <span class="recording-count" id="recordingCount">0</span>
+                    </div>
+                    <ul id="recordingList"></ul>
+                </section>
+            </aside>
+        </section>
         <div id="shortcut-display"></div>
-    </div>
+    </main>
     <script src="https://cdn.jsdelivr.net/npm/ts-ebml@3.0.2/dist/EBML.min.js"></script>
     <script src="share-modal.js"></script>
     <script src="script.js"></script>

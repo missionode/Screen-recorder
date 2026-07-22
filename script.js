@@ -1,6 +1,18 @@
 const toggleRecordingBtn = document.getElementById('toggleRecording');
 const recordingList = document.getElementById('recordingList');
 const facecamToggle = document.getElementById('facecamToggle');
+const heroTitle = document.getElementById('heroTitle');
+const heroSubtitle = document.getElementById('heroSubtitle');
+const logoInput = document.getElementById('logoInput');
+const logoUploadButton = document.getElementById('logoUploadButton');
+const changeLogoButton = document.getElementById('changeLogoButton');
+const removeLogoButton = document.getElementById('removeLogoButton');
+const brandLogo = document.getElementById('brandLogo');
+const recordingCount = document.getElementById('recordingCount');
+const settingsButton = document.getElementById('settingsButton');
+const settingsPanel = document.getElementById('settingsPanel');
+const closeSettingsButton = document.getElementById('closeSettingsButton');
+const panelBackdrop = document.getElementById('panelBackdrop');
 
 let isRecording = false;
 let mediaRecorder;
@@ -12,11 +24,94 @@ let facecamVideo = null;
 let startTime;
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
+const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
+
+function setSettingsOpen(isOpen) {
+    settingsPanel.classList.toggle('open', isOpen);
+    settingsPanel.setAttribute('aria-hidden', String(!isOpen));
+    settingsButton.setAttribute('aria-expanded', String(isOpen));
+    panelBackdrop.hidden = !isOpen;
+    if (isOpen) closeSettingsButton.focus();
+}
+
+settingsButton.addEventListener('click', () => setSettingsOpen(true));
+closeSettingsButton.addEventListener('click', () => setSettingsOpen(false));
+panelBackdrop.addEventListener('click', () => setSettingsOpen(false));
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && settingsPanel.classList.contains('open')) setSettingsOpen(false);
+});
 
 // Load recordings from localStorage on page load
 window.addEventListener('load', () => {
     loadRecordings();
+    loadCustomization();
 });
+
+function loadCustomization() {
+    const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
+    if (saved.title) heroTitle.textContent = saved.title;
+    if (saved.subtitle) heroSubtitle.textContent = saved.subtitle;
+    if (saved.logo) showLogo(saved.logo);
+}
+
+function saveCustomization() {
+    const current = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
+    localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify({
+        ...current,
+        title: heroTitle.textContent.trim(),
+        subtitle: heroSubtitle.textContent.trim()
+    }));
+}
+
+[heroTitle, heroSubtitle].forEach(field => {
+    field.addEventListener('input', saveCustomization);
+    field.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            field.blur();
+        }
+    });
+});
+
+[logoUploadButton, changeLogoButton].forEach(button => {
+    button.addEventListener('click', () => logoInput.click());
+});
+
+logoInput.addEventListener('change', () => {
+    const file = logoInput.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+        alert('Please choose a logo smaller than 2 MB.');
+        logoInput.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
+        saved.logo = reader.result;
+        localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
+        showLogo(reader.result);
+    };
+    reader.readAsDataURL(file);
+});
+
+removeLogoButton.addEventListener('click', () => {
+    const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
+    delete saved.logo;
+    localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
+    brandLogo.removeAttribute('src');
+    brandLogo.classList.remove('visible');
+    logoUploadButton.classList.remove('hidden');
+    removeLogoButton.hidden = true;
+    logoInput.value = '';
+});
+
+function showLogo(source) {
+    brandLogo.src = source;
+    brandLogo.classList.add('visible');
+    logoUploadButton.classList.add('hidden');
+    removeLogoButton.hidden = false;
+}
 
 toggleRecordingBtn.addEventListener('click', () => {
     if (isRecording) {
@@ -29,8 +124,9 @@ toggleRecordingBtn.addEventListener('click', () => {
 function loadRecordings() {
     const recordings = JSON.parse(localStorage.getItem(RECORDING_STORAGE_KEY)) || [];
     recordingList.innerHTML = '';
+    recordingCount.textContent = recordings.length;
     if (recordings.length === 0) {
-        recordingList.innerHTML = '<li>No recordings yet.</li>';
+        recordingList.innerHTML = '<li class="empty-state"><span class="empty-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="14" height="14" rx="3"/><path d="m17 10 4-2v8l-4-2"/></svg></span><span>No recordings yet.<br>Your captures will appear here.</span></li>';
         return;
     }
     recordings.forEach(rec => {
@@ -321,7 +417,7 @@ async function startRecordingWithFileSystemAccess(fileHandle) {
 
         mediaRecorder.start(1000); // Slice into 1s chunks
         isRecording = true;
-        toggleRecordingBtn.textContent = 'Stop Recording';
+        toggleRecordingBtn.querySelector('.record-label').textContent = 'Stop recording';
         toggleRecordingBtn.classList.add('recording');
 
     } catch (err) {
@@ -373,7 +469,7 @@ function startRecordingWithFallback() {
 
     mediaRecorder.start(1000);
     isRecording = true;
-    toggleRecordingBtn.textContent = 'Stop Recording';
+    toggleRecordingBtn.querySelector('.record-label').textContent = 'Stop recording';
     toggleRecordingBtn.classList.add('recording');
 }
 
@@ -438,7 +534,7 @@ function stopRecording() {
     }
 
     isRecording = false;
-    toggleRecordingBtn.textContent = 'Record Screen';
+    toggleRecordingBtn.querySelector('.record-label').textContent = 'Record screen';
     toggleRecordingBtn.classList.remove('recording');
     stream = null;
     mediaRecorder = null;
