@@ -14,9 +14,10 @@
             <div class="slide" aria-label="Customizable recording cover">
                 <div class="slide-glow slide-glow-one"></div>
                 <div class="slide-glow slide-glow-two"></div>
+                <div class="topic-cloud" id="topicCloud" aria-label="Topic cloud"></div>
 
                 <div class="slide-content">
-                    <span class="privacy-note"><span class="privacy-dot"></span> Private by design</span>
+                    <span class="privacy-note"><span class="privacy-dot"></span> Made for ideas worth sharing</span>
                     <div class="logo-area">
                         <img id="brandLogo" alt="Your logo">
                         <button class="logo-placeholder" id="logoUploadButton" type="button">
@@ -35,15 +36,10 @@
                             <span class="record-icon" aria-hidden="true"></span>
                             <span class="record-label">Record screen</span>
                         </button>
-                        <label class="facecam-option" for="facecamToggle">
-                            <input type="checkbox" id="facecamToggle">
-                            <span class="toggle" aria-hidden="true"></span>
-                            <span>Enable facecam</span>
-                        </label>
                     </div>
                     <p class="local-note">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.9 8.5 7 10 4.1-1.5 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
-                        Recordings stay on your computer
+                        Made to keep your ideas moving
                     </p>
                 </div>
 
@@ -51,6 +47,27 @@
                 <button class="settings-button" id="settingsButton" type="button" aria-label="Open settings" aria-expanded="false">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
                 </button>
+                <button class="planner-button" id="plannerButton" type="button" aria-label="Open cloud planner" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15.5h10a4 4 0 0 0 .4-8A5.8 5.8 0 0 0 6.5 9.2 3.2 3.2 0 0 0 7 15.5Z"/><path d="M9 19h6M12 15.5V19"/></svg>
+                </button>
+                <button class="screenshot-button" id="screenshotButton" type="button" aria-label="Copy slide screenshot" title="Copy slide screenshot" hidden>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6.5 9.3 4h5.4L16 6.5h3A2 2 0 0 1 21 8.5V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2h3Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                </button>
+                <button class="clear-cloud-button" id="clearCloudButton" type="button" aria-label="Clear cloud tags" title="Clear slide cloud" hidden>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 4.5 5 5L10 19H5l-2-2 11.5-12.5Z"/><path d="m11 8 5 5M10 19h10"/></svg>
+                </button>
+                <span class="screenshot-status" id="screenshotStatus" role="status" aria-live="polite"></span>
+                <section class="slide-presenter" id="slidePresenter" aria-label="Cloud suggestion" hidden>
+                    <div class="slide-presenter-meta">
+                        <span id="slidePresenterTopic">Next cloud term</span>
+                        <span id="slidePresenterProgress"></span>
+                    </div>
+                    <input id="slidePresenterInput" type="text" maxlength="36" aria-label="Edit cloud suggestion">
+                    <div class="slide-presenter-actions">
+                        <button id="slidePresenterSkip" type="button">Skip</button>
+                        <button id="slidePresenterAdd" type="button">Add to cloud</button>
+                    </div>
+                </section>
             </div>
 
             <div class="panel-backdrop" id="panelBackdrop" hidden></div>
@@ -92,10 +109,85 @@
                     <ul id="recordingList"></ul>
                 </section>
             </aside>
+
+            <div class="planner-backdrop" id="plannerBackdrop" hidden></div>
+            <aside class="cloud-planner-panel" id="cloudPlannerPanel" aria-label="Cloud planner" aria-hidden="true">
+                <div class="panel-header planner-panel-header">
+                    <div><p class="panel-kicker">Topics</p><h2>Cloud planner</h2></div>
+                    <button class="panel-close" id="closePlannerButton" type="button" aria-label="Close cloud planner">×</button>
+                </div>
+                <div class="planner-body">
+                    <div class="planner-workspace-heading">
+                        <div><h3>Presentation topics</h3><p>Select the terms you want to review in the private presenter.</p></div>
+                        <button id="addPlannerTopicButton" type="button">+ Add topic</button>
+                    </div>
+                    <div class="planner-groups" id="plannerGroups"></div>
+                    <div class="planner-empty" id="plannerEmpty">
+                        <strong>No topics prepared yet</strong>
+                        <span>Upload a CSV or add your first topic manually.</span>
+                    </div>
+                    <div id="plannerInputView" hidden>
+                        <textarea id="plannerInput" rows="8" placeholder="Design, Research, Growth, Next steps"></textarea>
+                        <button class="planner-prepare" id="prepareTopicsButton" type="button">Prepare suggestions</button>
+                    </div>
+                    <div class="planner-review" id="plannerReview" hidden>
+                        <span class="planner-progress" id="plannerProgress"></span>
+                        <span class="planner-context" id="plannerContext"></span>
+                        <div class="planner-suggestion" id="plannerSuggestion"></div>
+                        <div class="planner-actions">
+                            <button id="skipTopicButton" type="button">Skip</button>
+                            <button id="addTopicButton" type="button">Add to cloud</button>
+                        </div>
+                    </div>
+                </div>
+                <footer class="planner-footer">
+                    <input id="plannerCsvInput" type="file" accept=".csv,text/csv" hidden>
+                    <button id="uploadPlannerCsvButton" type="button">Upload CSV</button>
+                    <button id="downloadSampleCsvButton" type="button">Download sample</button>
+                    <button id="downloadLatestCsvButton" type="button" disabled>Download latest CSV</button>
+                    <span class="planner-footer-note">Format: topic, description, cloud terms</span>
+                    <button class="open-presenter-button" id="openPresenterButton" type="button" disabled>Start slide prompts <span id="selectedTermCount">0</span></button>
+                </footer>
+            </aside>
         </section>
+        <div class="setup-backdrop" id="setupBackdrop" hidden></div>
+        <section class="setup-dialog" id="setupDialog" role="dialog" aria-modal="true" aria-labelledby="setupTitle" aria-hidden="true">
+            <button class="setup-close" id="setupCloseButton" type="button" aria-label="Close recording setup">×</button>
+            <div class="setup-icon" aria-hidden="true"><span></span></div>
+            <p class="panel-kicker">Recording setup</p>
+            <h2 id="setupTitle">Ready when you are.</h2>
+            <p class="setup-intro">Choose what to include and where your recording should be saved.</p>
+
+            <div class="setup-options">
+                <label class="setup-option" for="setupFacecamToggle">
+                    <span><strong>Facecam</strong><small>Show your camera while presenting</small></span>
+                    <input type="checkbox" id="setupFacecamToggle">
+                    <span class="toggle" aria-hidden="true"></span>
+                </label>
+                <label class="setup-option" for="setupMicrophoneToggle">
+                    <span><strong>Microphone</strong><small>Include your voice in the recording</small></span>
+                    <input type="checkbox" id="setupMicrophoneToggle" checked>
+                    <span class="toggle" aria-hidden="true"></span>
+                </label>
+            </div>
+
+            <div class="destination-box">
+                <span class="destination-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7.5h7l2 2h9v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V5a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v2.5"/></svg></span>
+                <span class="destination-copy"><strong id="destinationName">Choose where to save</strong><small id="destinationDetail">Select a file before recording starts</small></span>
+                <button id="chooseDestinationButton" type="button">Choose</button>
+            </div>
+
+            <button class="setup-start" id="confirmRecordingButton" type="button" disabled>
+                <span class="record-icon" aria-hidden="true"></span>
+                Start recording
+            </button>
+            <p class="setup-private"><span class="privacy-dot"></span>Your recording is processed locally and stays on your device.</p>
+        </section>
+        <button class="popout-facecam" id="popoutFacecamButton" type="button" hidden>Pop out facecam</button>
         <div id="shortcut-display"></div>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/ts-ebml@3.0.2/dist/EBML.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="share-modal.js"></script>
     <script src="script.js"></script>
 </body>

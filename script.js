@@ -1,6 +1,5 @@
 const toggleRecordingBtn = document.getElementById('toggleRecording');
 const recordingList = document.getElementById('recordingList');
-const facecamToggle = document.getElementById('facecamToggle');
 const heroTitle = document.getElementById('heroTitle');
 const heroSubtitle = document.getElementById('heroSubtitle');
 const logoInput = document.getElementById('logoInput');
@@ -16,6 +15,49 @@ const panelBackdrop = document.getElementById('panelBackdrop');
 const logoHistorySection = document.getElementById('logoHistorySection');
 const logoHistoryGrid = document.getElementById('logoHistoryGrid');
 const clearLogoHistoryButton = document.getElementById('clearLogoHistoryButton');
+const setupBackdrop = document.getElementById('setupBackdrop');
+const setupDialog = document.getElementById('setupDialog');
+const setupCloseButton = document.getElementById('setupCloseButton');
+const setupFacecamToggle = document.getElementById('setupFacecamToggle');
+const setupMicrophoneToggle = document.getElementById('setupMicrophoneToggle');
+const chooseDestinationButton = document.getElementById('chooseDestinationButton');
+const confirmRecordingButton = document.getElementById('confirmRecordingButton');
+const destinationName = document.getElementById('destinationName');
+const destinationDetail = document.getElementById('destinationDetail');
+const popoutFacecamButton = document.getElementById('popoutFacecamButton');
+const slide = document.querySelector('.slide');
+const topicCloud = document.getElementById('topicCloud');
+const screenshotButton = document.getElementById('screenshotButton');
+const screenshotStatus = document.getElementById('screenshotStatus');
+const plannerInputView = document.getElementById('plannerInputView');
+const plannerInput = document.getElementById('plannerInput');
+const prepareTopicsButton = document.getElementById('prepareTopicsButton');
+const plannerReview = document.getElementById('plannerReview');
+const plannerProgress = document.getElementById('plannerProgress');
+const plannerSuggestion = document.getElementById('plannerSuggestion');
+const skipTopicButton = document.getElementById('skipTopicButton');
+const addTopicButton = document.getElementById('addTopicButton');
+const plannerButton = document.getElementById('plannerButton');
+const plannerBackdrop = document.getElementById('plannerBackdrop');
+const cloudPlannerPanel = document.getElementById('cloudPlannerPanel');
+const closePlannerButton = document.getElementById('closePlannerButton');
+const plannerContext = document.getElementById('plannerContext');
+const plannerCsvInput = document.getElementById('plannerCsvInput');
+const uploadPlannerCsvButton = document.getElementById('uploadPlannerCsvButton');
+const downloadSampleCsvButton = document.getElementById('downloadSampleCsvButton');
+const downloadLatestCsvButton = document.getElementById('downloadLatestCsvButton');
+const plannerGroupsElement = document.getElementById('plannerGroups');
+const plannerEmpty = document.getElementById('plannerEmpty');
+const addPlannerTopicButton = document.getElementById('addPlannerTopicButton');
+const openPresenterButton = document.getElementById('openPresenterButton');
+const selectedTermCount = document.getElementById('selectedTermCount');
+const slidePresenter = document.getElementById('slidePresenter');
+const slidePresenterTopic = document.getElementById('slidePresenterTopic');
+const slidePresenterProgress = document.getElementById('slidePresenterProgress');
+const slidePresenterInput = document.getElementById('slidePresenterInput');
+const slidePresenterSkip = document.getElementById('slidePresenterSkip');
+const slidePresenterAdd = document.getElementById('slidePresenterAdd');
+const clearCloudButton = document.getElementById('clearCloudButton');
 
 let isRecording = false;
 let mediaRecorder;
@@ -25,12 +67,654 @@ let writableStream = null;
 let facecamStream = null;
 let facecamVideo = null;
 let startTime;
+let pendingFileHandle = null;
+let activeTopicEntry = null;
+let topicTags = [];
+let plannedTopics = [];
+let plannedTopicIndex = 0;
+let plannerData = [];
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
+const CLOUD_PLANNER_STORAGE_KEY = 'screenRecorderCloudPlanner';
+const CLOUD_PLANNER_SELECTION_MODE_KEY = 'screenRecorderCloudPlannerSelectionMode';
 const MAX_LOGO_HISTORY = 8;
+const TOPIC_COLORS = ['#547f9f', '#687da8', '#4f898f', '#7478a4', '#5d8194'];
+let cloudSlots = createTopicSlots();
+
+function createTopicSlots() {
+    const slots = [];
+    while (slots.length < 520) {
+        const x = 4 + Math.random() * 92;
+        const y = 6 + Math.random() * 88;
+        const rawAngle = (Math.random() - .5) * 14;
+        const angle = Math.abs(rawAngle) < 1.5 ? 0 : rawAngle;
+        slots.push([x, y, angle]);
+    }
+    return slots;
+}
+
+slide.addEventListener('click', event => {
+    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button, .topic-entry')) return;
+    openTopicEntry(event.clientX, event.clientY);
+});
+
+slide.addEventListener('dblclick', event => {
+    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button')) return;
+    event.preventDefault();
+    cancelTopicEntry();
+    rearrangeTopicCloud();
+});
+
+function openTopicEntry(clientX, clientY) {
+    if (activeTopicEntry?.input.value.trim()) commitTopicEntry();
+    else cancelTopicEntry();
+    const bounds = slide.getBoundingClientRect();
+    const x = Math.max(18, Math.min(clientX - bounds.left, bounds.width - 225));
+    const y = Math.max(35, Math.min(clientY - bounds.top, bounds.height - 35));
+    const input = document.createElement('input');
+    const dot = document.createElement('span');
+    input.className = 'topic-entry';
+    input.type = 'text';
+    input.maxLength = 36;
+    input.placeholder = 'Type a topic…';
+    input.setAttribute('aria-label', 'Add a topic tag');
+    input.style.left = `${x}px`;
+    input.style.top = `${y}px`;
+    dot.className = 'topic-entry-dot';
+    dot.style.left = `${x}px`;
+    dot.style.top = `${y}px`;
+    slide.append(dot, input);
+    activeTopicEntry = { input, dot, x, y };
+    input.focus();
+    input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            commitTopicEntry();
+        }
+        if (event.key === 'Escape') cancelTopicEntry();
+    });
+    input.addEventListener('blur', () => setTimeout(() => {
+        if (!activeTopicEntry || activeTopicEntry.input !== input) return;
+        if (input.value.trim()) commitTopicEntry();
+        else cancelTopicEntry();
+    }, 0));
+}
+
+function commitTopicEntry() {
+    if (!activeTopicEntry) return;
+    const { input, dot, x, y } = activeTopicEntry;
+    const text = input.value.trim();
+    activeTopicEntry = null;
+    input.remove();
+    dot.remove();
+    if (!text) return;
+
+    createTopicTag(text, x, y);
+}
+
+function createTopicTag(text, x, y) {
+    const tag = document.createElement('span');
+    tag.className = 'topic-tag settling';
+    tag.textContent = text;
+    tag.style.left = `${x}px`;
+    tag.style.top = `${y}px`;
+    tag.style.setProperty('--tag-color', TOPIC_COLORS[topicTags.length % TOPIC_COLORS.length]);
+    const visualScale = Math.random();
+    tag.style.setProperty('--tag-size', `${10 + Math.round(visualScale * 10)}px`);
+    tag.style.setProperty('--tag-pad-y', `${6 + Math.round(visualScale * 3)}px`);
+    tag.style.setProperty('--tag-pad-x', `${10 + Math.round(visualScale * 5)}px`);
+    tag.style.setProperty('--tag-weight', `${580 + Math.round(visualScale * 160)}`);
+    tag.style.setProperty('--tag-opacity', `${.68 + visualScale * .18}`);
+    tag.style.setProperty('--float-distance', `${6 + Math.round(Math.random() * 6)}px`);
+    tag.style.setProperty('--float-duration', `${4.5 + Math.random() * 3}s`);
+    tag.style.setProperty('--float-delay', `${Math.random() * -3}s`);
+    topicCloud.appendChild(tag);
+    topicTags.push(tag);
+    screenshotButton.hidden = false;
+    clearCloudButton.hidden = false;
+    setTimeout(() => {
+        tag.classList.remove('settling');
+        arrangeTopicCloud();
+        setTimeout(() => tag.classList.add('clouded'), 1200);
+    }, 650);
+}
+
+function cancelTopicEntry() {
+    if (!activeTopicEntry) return;
+    activeTopicEntry.input.remove();
+    activeTopicEntry.dot.remove();
+    activeTopicEntry = null;
+}
+
+function arrangeTopicCloud() {
+    const cloudWidth = topicCloud.clientWidth;
+    const cloudHeight = topicCloud.clientHeight;
+    const placedBounds = [];
+    const slideBounds = slide.getBoundingClientRect();
+    const protectedSelectors = [
+        '.privacy-note', '.logo-area', '.eyebrow', '#heroTitle', '#heroSubtitle',
+        '.controls', '.local-note', '.settings-button', '.planner-button', '.screenshot-button', '.clear-cloud-button', '.slide-presenter', '.slide-number'
+    ];
+    const protectedBounds = protectedSelectors
+        .map(selector => slide.querySelector(selector))
+        .filter(Boolean)
+        .map(element => {
+            const bounds = element.getBoundingClientRect();
+            const safety = 16;
+            return {
+                left: bounds.left - slideBounds.left - safety,
+                right: bounds.right - slideBounds.left + safety,
+                top: bounds.top - slideBounds.top - safety,
+                bottom: bounds.bottom - slideBounds.top + safety
+            };
+        });
+
+    topicTags.forEach((tag, index) => {
+        const width = tag.offsetWidth;
+        const height = tag.offsetHeight;
+        const padding = 8;
+        let selected = null;
+
+        for (const slot of cloudSlots) {
+            const angleInRadians = slot[2] * Math.PI / 180;
+            const rotatedWidth = Math.abs(width * Math.cos(angleInRadians)) + Math.abs(height * Math.sin(angleInRadians));
+            const rotatedHeight = Math.abs(width * Math.sin(angleInRadians)) + Math.abs(height * Math.cos(angleInRadians));
+            const centerX = Math.max(rotatedWidth / 2 + padding, Math.min(cloudWidth - rotatedWidth / 2 - padding, cloudWidth * slot[0] / 100));
+            const centerY = Math.max(rotatedHeight / 2 + padding, Math.min(cloudHeight - rotatedHeight / 2 - padding, cloudHeight * slot[1] / 100));
+            const bounds = {
+                left: centerX - rotatedWidth / 2 - padding,
+                right: centerX + rotatedWidth / 2 + padding,
+                top: centerY - rotatedHeight / 2 - padding,
+                bottom: centerY + rotatedHeight / 2 + padding
+            };
+            const intersects = other => !(
+                bounds.right <= other.left || bounds.left >= other.right ||
+                bounds.bottom <= other.top || bounds.top >= other.bottom
+            );
+            const overlapsTag = placedBounds.some(intersects);
+            const overlapsContent = protectedBounds.some(intersects);
+            if (!overlapsTag && !overlapsContent) {
+                selected = { centerX, centerY, bounds, rotation: slot[2] };
+                break;
+            }
+        }
+
+        if (!selected) {
+            // Keep the tag at its last visible position if the slide is completely full.
+            tag.style.removeProperty('opacity');
+            return;
+        }
+
+        tag.style.removeProperty('opacity');
+        tag.style.left = `${selected.centerX}px`;
+        tag.style.top = `${selected.centerY}px`;
+        tag.style.setProperty('--tag-rotation', `${selected.rotation}deg`);
+        placedBounds.push(selected.bounds);
+    });
+}
+
+function rearrangeTopicCloud() {
+    cloudSlots = createTopicSlots();
+    for (let index = cloudSlots.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [cloudSlots[index], cloudSlots[swapIndex]] = [cloudSlots[swapIndex], cloudSlots[index]];
+    }
+    topicCloud.classList.add('rearranging');
+    arrangeTopicCloud();
+    setTimeout(() => topicCloud.classList.remove('rearranging'), 650);
+}
+
+window.addEventListener('resize', arrangeTopicCloud);
+
+screenshotButton.addEventListener('click', copySlideScreenshot);
+
+async function copySlideScreenshot() {
+    if (typeof html2canvas === 'undefined') {
+        showScreenshotStatus('Screenshot tool unavailable');
+        return;
+    }
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+        showScreenshotStatus('Image clipboard unavailable');
+        return;
+    }
+    if (activeTopicEntry?.input.value.trim()) commitTopicEntry();
+    else cancelTopicEntry();
+
+    screenshotButton.disabled = true;
+    slide.classList.add('capture-mode');
+    try {
+        const imagePromise = (async () => {
+            if (document.fonts?.ready) await document.fonts.ready;
+            const canvas = await html2canvas(slide, {
+                backgroundColor: null,
+                scale: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+                useCORS: true,
+                logging: false,
+                onclone: clonedDocument => {
+                    const typographyProperties = [
+                        'color', 'fontFamily', 'fontSize', 'fontStyle', 'fontWeight',
+                        'letterSpacing', 'lineHeight', 'textAlign', 'textTransform',
+                        'width', 'maxWidth', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft'
+                    ];
+                    [
+                        [heroTitle, clonedDocument.getElementById('heroTitle')],
+                        [heroSubtitle, clonedDocument.getElementById('heroSubtitle')]
+                    ].forEach(([original, clone]) => {
+                        if (!clone) return;
+                        const computed = getComputedStyle(original);
+                        typographyProperties.forEach(property => {
+                            clone.style[property] = computed[property];
+                        });
+                        clone.textContent = original.textContent;
+                        clone.removeAttribute('contenteditable');
+                        clone.removeAttribute('spellcheck');
+                    });
+                }
+            });
+            return new Promise((resolve, reject) => {
+                canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not create screenshot')), 'image/png');
+            });
+        })();
+
+        // Start the clipboard operation directly from the click so browser permission remains valid.
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': imagePromise })]);
+        showScreenshotStatus('Copied to clipboard');
+    } catch (error) {
+        console.error('Could not copy the slide screenshot:', error);
+        showScreenshotStatus('Clipboard access was blocked');
+    } finally {
+        slide.classList.remove('capture-mode');
+        screenshotButton.disabled = false;
+    }
+}
+
+function showScreenshotStatus(message) {
+    screenshotStatus.textContent = message;
+    screenshotStatus.classList.add('show');
+    clearTimeout(showScreenshotStatus.timer);
+    showScreenshotStatus.timer = setTimeout(() => screenshotStatus.classList.remove('show'), 2400);
+}
+
+function createPlannerId() {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function savePlannerData() {
+    localStorage.setItem(CLOUD_PLANNER_STORAGE_KEY, JSON.stringify(plannerData));
+    updatePlannerSelection();
+}
+
+function loadPlannerData() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(CLOUD_PLANNER_STORAGE_KEY) || '[]');
+        plannerData = Array.isArray(saved) ? saved : [];
+        if (localStorage.getItem(CLOUD_PLANNER_SELECTION_MODE_KEY) !== 'opt-in-v1') {
+            plannerData.forEach(group => group.terms?.forEach(term => { term.selected = false; }));
+            localStorage.setItem(CLOUD_PLANNER_SELECTION_MODE_KEY, 'opt-in-v1');
+            localStorage.setItem(CLOUD_PLANNER_STORAGE_KEY, JSON.stringify(plannerData));
+        }
+    } catch (_) {
+        plannerData = [];
+    }
+    renderPlannerWorkspace();
+}
+
+function renderPlannerWorkspace() {
+    plannerGroupsElement.innerHTML = '';
+    plannerEmpty.hidden = plannerData.length > 0;
+
+    plannerData.forEach(group => {
+        const card = document.createElement('section');
+        card.className = 'planner-group';
+        card.dataset.groupId = group.id;
+        const header = document.createElement('div');
+        header.className = 'planner-group-header';
+        const topicCheckbox = document.createElement('input');
+        topicCheckbox.type = 'checkbox';
+        topicCheckbox.className = 'planner-topic-select';
+        topicCheckbox.setAttribute('aria-label', `Select all terms in ${group.topic || 'topic'}`);
+        const updateTopicSelectionState = () => {
+            const selectedCount = group.terms.filter(term => term.selected).length;
+            topicCheckbox.checked = group.terms.length > 0 && selectedCount === group.terms.length;
+            topicCheckbox.indeterminate = selectedCount > 0 && selectedCount < group.terms.length;
+        };
+        topicCheckbox.addEventListener('change', () => {
+            group.terms.forEach(term => { term.selected = topicCheckbox.checked; });
+            savePlannerData();
+            renderPlannerWorkspace();
+        });
+        const title = document.createElement('input');
+        title.className = 'planner-group-title';
+        title.value = group.topic;
+        title.placeholder = 'Topic name';
+        title.setAttribute('aria-label', 'Topic name');
+        title.addEventListener('input', () => {
+            group.topic = title.value;
+            savePlannerData();
+        });
+        const removeGroup = document.createElement('button');
+        removeGroup.className = 'planner-delete';
+        removeGroup.type = 'button';
+        removeGroup.textContent = '×';
+        removeGroup.setAttribute('aria-label', `Delete ${group.topic || 'topic'}`);
+        removeGroup.addEventListener('click', () => {
+            plannerData = plannerData.filter(item => item.id !== group.id);
+            savePlannerData();
+            renderPlannerWorkspace();
+        });
+        header.append(topicCheckbox, title, removeGroup);
+
+        const description = document.createElement('textarea');
+        description.className = 'planner-group-description';
+        description.rows = 2;
+        description.value = group.description || '';
+        description.placeholder = 'Describe this topic for the slide subtitle';
+        description.setAttribute('aria-label', `Description for ${group.topic || 'topic'}`);
+        description.addEventListener('input', () => {
+            group.description = description.value;
+            savePlannerData();
+        });
+
+        const terms = document.createElement('div');
+        terms.className = 'planner-terms';
+        group.terms.forEach(term => {
+            const row = document.createElement('label');
+            row.className = 'planner-term';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = Boolean(term.selected);
+            checkbox.setAttribute('aria-label', `Select ${term.text}`);
+            checkbox.addEventListener('change', () => {
+                term.selected = checkbox.checked;
+                savePlannerData();
+                updateTopicSelectionState();
+            });
+            const input = document.createElement('input');
+            input.className = 'planner-term-text';
+            input.value = term.text;
+            input.placeholder = 'Cloud term';
+            input.addEventListener('input', () => {
+                term.text = input.value;
+                savePlannerData();
+            });
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'planner-term-remove';
+            remove.textContent = '×';
+            remove.setAttribute('aria-label', `Remove ${term.text}`);
+            remove.addEventListener('click', event => {
+                event.preventDefault();
+                group.terms = group.terms.filter(item => item.id !== term.id);
+                savePlannerData();
+                renderPlannerWorkspace();
+            });
+            row.append(checkbox, input, remove);
+            terms.appendChild(row);
+        });
+
+        const addTerm = document.createElement('button');
+        addTerm.type = 'button';
+        addTerm.className = 'planner-add-term';
+        addTerm.textContent = '+ Add cloud term';
+        addTerm.addEventListener('click', () => {
+            group.terms.push({ id: createPlannerId(), text: '', selected: false });
+            savePlannerData();
+            renderPlannerWorkspace();
+            plannerGroupsElement.querySelector(`[data-group-id="${group.id}"] .planner-term:last-child .planner-term-text`)?.focus();
+        });
+        updateTopicSelectionState();
+        card.append(header, description, terms, addTerm);
+        plannerGroupsElement.appendChild(card);
+    });
+    updatePlannerSelection();
+}
+
+function updatePlannerSelection() {
+    const count = plannerData.reduce((total, group) => total + group.terms.filter(term => term.selected && term.text.trim()).length, 0);
+    selectedTermCount.textContent = count;
+    openPresenterButton.disabled = count === 0;
+    downloadLatestCsvButton.disabled = plannerData.length === 0;
+}
+
+addPlannerTopicButton.addEventListener('click', () => {
+    plannerData.push({
+        id: createPlannerId(),
+        topic: 'New topic',
+        description: '',
+        terms: [{ id: createPlannerId(), text: '', selected: false }]
+    });
+    savePlannerData();
+    renderPlannerWorkspace();
+    plannerGroupsElement.lastElementChild?.querySelector('.planner-group-title')?.select();
+});
+
+openPresenterButton.addEventListener('click', () => {
+    plannedTopics = plannerData.flatMap(group => group.terms
+        .filter(term => term.selected && term.text.trim())
+        .map(term => ({ term: term.text.trim(), context: group.topic.trim(), description: (group.description || '').trim() })));
+    plannedTopicIndex = 0;
+    if (!plannedTopics.length) return;
+    renderPlannedTopic();
+    setPlannerOpen(false);
+    slidePresenter.hidden = false;
+    slide.classList.add('presenter-active');
+    requestAnimationFrame(arrangeTopicCloud);
+});
+
+slidePresenterSkip.addEventListener('click', advancePlannedTopic);
+slidePresenterAdd.addEventListener('click', () => {
+    const value = slidePresenterInput.value.trim();
+    if (!value) return;
+    createTopicTag(value, slide.clientWidth * .5, slide.clientHeight - 90);
+    advancePlannedTopic();
+});
+slidePresenterInput.addEventListener('keydown', event => {
+    if (event.key === 'Enter') slidePresenterAdd.click();
+});
+
+prepareTopicsButton.addEventListener('click', () => {
+    const uniqueTopics = [...new Set(
+        plannerInput.value
+            .split(/[,\n]+/)
+            .map(topic => topic.trim())
+            .filter(Boolean)
+    )].slice(0, 50);
+    if (!uniqueTopics.length) {
+        plannerInput.focus();
+        return;
+    }
+    plannedTopics = uniqueTopics.map(term => ({ term, context: '' }));
+    plannedTopicIndex = 0;
+    plannerInputView.hidden = true;
+    plannerReview.hidden = false;
+    renderPlannedTopic();
+});
+
+addTopicButton.addEventListener('click', () => {
+    const suggestion = plannedTopics[plannedTopicIndex];
+    if (!suggestion) return;
+    createTopicTag(suggestion.term, slide.clientWidth - 45, slide.clientHeight * .5);
+    advancePlannedTopic();
+});
+
+skipTopicButton.addEventListener('click', advancePlannedTopic);
+
+function advancePlannedTopic() {
+    plannedTopicIndex += 1;
+    if (plannedTopicIndex >= plannedTopics.length) {
+        plannerReview.hidden = true;
+        plannedTopics = [];
+        plannedTopicIndex = 0;
+        slidePresenter.hidden = true;
+        slide.classList.remove('presenter-active');
+        requestAnimationFrame(arrangeTopicCloud);
+        return;
+    }
+    renderPlannedTopic();
+}
+
+function renderPlannedTopic() {
+    plannerProgress.textContent = `${plannedTopicIndex + 1} of ${plannedTopics.length}`;
+    const suggestion = plannedTopics[plannedTopicIndex];
+    plannerSuggestion.textContent = suggestion.term;
+    plannerContext.textContent = suggestion.context ? `Topic · ${suggestion.context}` : '';
+    slidePresenterInput.value = suggestion.term;
+    slidePresenterTopic.textContent = suggestion.context || 'Next cloud term';
+    slidePresenterProgress.textContent = `${plannedTopicIndex + 1}/${plannedTopics.length}`;
+    if (suggestion.context) heroTitle.textContent = suggestion.context;
+    if (suggestion.description) heroSubtitle.textContent = suggestion.description;
+    slidePresenter.hidden = false;
+    requestAnimationFrame(arrangeTopicCloud);
+}
+
+function setPlannerOpen(isOpen) {
+    if (isOpen) {
+        setSettingsOpen(false);
+        plannerData.forEach(group => group.terms.forEach(term => { term.selected = false; }));
+        savePlannerData();
+        renderPlannerWorkspace();
+    }
+    cloudPlannerPanel.classList.toggle('open', isOpen);
+    cloudPlannerPanel.setAttribute('aria-hidden', String(!isOpen));
+    plannerButton.setAttribute('aria-expanded', String(isOpen));
+    plannerBackdrop.hidden = !isOpen;
+    if (isOpen) closePlannerButton.focus();
+}
+
+plannerButton.addEventListener('click', () => setPlannerOpen(true));
+closePlannerButton.addEventListener('click', () => setPlannerOpen(false));
+plannerBackdrop.addEventListener('click', () => setPlannerOpen(false));
+uploadPlannerCsvButton.addEventListener('click', () => plannerCsvInput.click());
+
+clearCloudButton.addEventListener('click', () => {
+    cancelTopicEntry();
+    topicCloud.classList.add('clearing');
+    setTimeout(() => {
+        topicTags.forEach(tag => tag.remove());
+        topicTags = [];
+        topicCloud.classList.remove('clearing');
+        screenshotButton.hidden = true;
+        clearCloudButton.hidden = true;
+    }, 280);
+});
+
+plannerCsvInput.addEventListener('change', async () => {
+    const file = plannerCsvInput.files[0];
+    if (!file) return;
+    try {
+        const rows = parseCsv(await file.text());
+        if (rows.length < 2) throw new Error('CSV has no topic rows');
+        const headers = rows[0].map(header => header.trim().toLowerCase().replace(/[_-]+/g, ' '));
+        const topicColumn = headers.indexOf('topic');
+        const descriptionColumn = headers.indexOf('description');
+        const termsColumn = headers.findIndex(header => header === 'cloud terms' || header === 'cloud term');
+        if (topicColumn < 0 || termsColumn < 0) throw new Error('Expected topic and cloud terms columns');
+
+        const importedGroups = new Map();
+        rows.slice(1).forEach(row => {
+            const context = (row[topicColumn] || '').trim();
+            const description = descriptionColumn >= 0 ? (row[descriptionColumn] || '').trim() : '';
+            const termsValue = termsColumn === row.length - 1 ? row[termsColumn] : row.slice(termsColumn).join(',');
+            if (!context) return;
+            if (!importedGroups.has(context.toLowerCase())) {
+                importedGroups.set(context.toLowerCase(), { id: createPlannerId(), topic: context, description, terms: [] });
+            }
+            const group = importedGroups.get(context.toLowerCase());
+            String(termsValue || '').split(/[,;|\n]+/).forEach(value => {
+                const term = value.trim();
+                if (term && !group.terms.some(item => item.text.toLowerCase() === term.toLowerCase())) {
+                    group.terms.push({ id: createPlannerId(), text: term, selected: false });
+                }
+            });
+        });
+        const imported = [...importedGroups.values()].filter(group => group.terms.length);
+        if (!imported.length) throw new Error('No cloud terms found');
+        imported.forEach(incoming => {
+            const existing = plannerData.find(group => group.topic.trim().toLowerCase() === incoming.topic.toLowerCase());
+            if (!existing) plannerData.push(incoming);
+            else {
+                if (incoming.description) existing.description = incoming.description;
+                incoming.terms.forEach(term => {
+                    if (!existing.terms.some(item => item.text.trim().toLowerCase() === term.text.toLowerCase())) existing.terms.push(term);
+                });
+            }
+        });
+        savePlannerData();
+        renderPlannerWorkspace();
+    } catch (error) {
+        console.error('Could not import cloud planner CSV:', error);
+        alert('Could not read this CSV. Use the columns: topic, description, cloud terms.');
+    } finally {
+        plannerCsvInput.value = '';
+    }
+});
+
+downloadSampleCsvButton.addEventListener('click', () => {
+    const sample = 'topic,description,cloud terms\nProduct Strategy,"Define where the product is going and how the team will get there.","Vision, Roadmap, Market fit"\nUser Research,"Turn customer conversations into clear product insight.","Interviews, Insights, Personas"\nGrowth,"Explore the moments that help more people discover and keep using the product.","Awareness, Activation, Retention"\n';
+    downloadPlannerCsv(sample, 'cloud-planner-sample.csv');
+});
+
+downloadLatestCsvButton.addEventListener('click', () => {
+    const rows = [['topic', 'description', 'cloud terms']];
+    plannerData.forEach(group => {
+        rows.push([
+            group.topic || '',
+            group.description || '',
+            group.terms.map(term => term.text.trim()).filter(Boolean).join(', ')
+        ]);
+    });
+    const csv = `${rows.map(row => row.map(escapeCsvCell).join(',')).join('\n')}\n`;
+    const date = new Date().toISOString().slice(0, 10);
+    downloadPlannerCsv(csv, `cloud-planner-${date}.csv`);
+});
+
+function escapeCsvCell(value) {
+    const text = String(value ?? '');
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadPlannerCsv(content, fileName) {
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let quoted = false;
+    for (let index = 0; index < text.length; index += 1) {
+        const character = text[index];
+        if (character === '"') {
+            if (quoted && text[index + 1] === '"') {
+                cell += '"';
+                index += 1;
+            } else quoted = !quoted;
+        } else if (character === ',' && !quoted) {
+            row.push(cell);
+            cell = '';
+        } else if ((character === '\n' || character === '\r') && !quoted) {
+            if (character === '\r' && text[index + 1] === '\n') index += 1;
+            row.push(cell);
+            if (row.some(value => value.trim())) rows.push(row);
+            row = [];
+            cell = '';
+        } else cell += character;
+    }
+    row.push(cell);
+    if (row.some(value => value.trim())) rows.push(row);
+    return rows;
+}
 
 function setSettingsOpen(isOpen) {
+    if (isOpen) setPlannerOpen(false);
     settingsPanel.classList.toggle('open', isOpen);
     settingsPanel.setAttribute('aria-hidden', String(!isOpen));
     settingsButton.setAttribute('aria-expanded', String(isOpen));
@@ -43,12 +727,15 @@ closeSettingsButton.addEventListener('click', () => setSettingsOpen(false));
 panelBackdrop.addEventListener('click', () => setSettingsOpen(false));
 document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && settingsPanel.classList.contains('open')) setSettingsOpen(false);
+    if (event.key === 'Escape' && cloudPlannerPanel.classList.contains('open')) setPlannerOpen(false);
+    if (event.key === 'Escape' && setupDialog.classList.contains('open')) closeRecordingSetup();
 });
 
 // Load recordings from localStorage on page load
 window.addEventListener('load', () => {
     loadRecordings();
     loadCustomization();
+    loadPlannerData();
 });
 
 function loadCustomization() {
@@ -171,9 +858,171 @@ toggleRecordingBtn.addEventListener('click', () => {
     if (isRecording) {
         stopRecording();
     } else {
-        startRecording();
+        openRecordingSetup();
     }
 });
+
+function openRecordingSetup() {
+    setSettingsOpen(false);
+    pendingFileHandle = null;
+    chooseDestinationButton.textContent = 'Choose';
+    destinationName.textContent = 'Choose where to save';
+    destinationDetail.textContent = 'Select a file before recording starts';
+    const supportsDirectSave = 'showSaveFilePicker' in window;
+    chooseDestinationButton.hidden = !supportsDirectSave;
+    confirmRecordingButton.disabled = supportsDirectSave;
+    if (!supportsDirectSave) {
+        destinationName.textContent = 'Browser download';
+        destinationDetail.textContent = 'Direct file sync is unavailable in this browser';
+    }
+    setupBackdrop.hidden = false;
+    setupDialog.classList.add('open');
+    setupDialog.setAttribute('aria-hidden', 'false');
+    setupCloseButton.focus();
+}
+
+function closeRecordingSetup() {
+    setupDialog.classList.remove('open');
+    setupDialog.setAttribute('aria-hidden', 'true');
+    setupBackdrop.hidden = true;
+}
+
+setupCloseButton.addEventListener('click', closeRecordingSetup);
+setupBackdrop.addEventListener('click', closeRecordingSetup);
+
+chooseDestinationButton.addEventListener('click', async () => {
+    try {
+        pendingFileHandle = await getOutputFileHandle();
+        destinationName.textContent = pendingFileHandle.name;
+        destinationDetail.textContent = 'Recording will sync to this file';
+        chooseDestinationButton.textContent = 'Change';
+        confirmRecordingButton.disabled = false;
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Could not choose a save location:', error);
+            destinationDetail.textContent = 'Could not access this location. Please try again.';
+        }
+    }
+});
+
+confirmRecordingButton.addEventListener('click', () => {
+    const selectedHandle = pendingFileHandle;
+    closeRecordingSetup();
+    startRecording(selectedHandle, {
+        facecam: setupFacecamToggle.checked,
+        microphone: setupMicrophoneToggle.checked
+    });
+});
+
+async function openFacecamPictureInPicture() {
+    if (!facecamVideo || !('documentPictureInPicture' in window)) return;
+    if (window.currentPiPWindow && !window.currentPiPWindow.closed) return;
+    try {
+        const pipWindow = await window.documentPictureInPicture.requestWindow({
+            width: 280,
+            height: 210,
+            disallowReturnToOpener: true,
+            preferInitialWindowPlacement: true
+        });
+        window.currentPiPWindow = pipWindow;
+
+        const pipStyle = pipWindow.document.createElement('style');
+        pipStyle.textContent = `
+            * { box-sizing: border-box; }
+            html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+            body { padding: 6px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+            .presenter-shell {
+                width: 100%; height: 100%; display: flex; flex-direction: column; gap: 6px;
+            }
+            .facecam-shell {
+                position: relative; flex: 1; min-height: 0;
+                width: 100%;
+                overflow: hidden;
+                border: 1px solid rgba(255,255,255,.52);
+                border-radius: 22px;
+                background: rgba(15,30,48,.16);
+                box-shadow: 0 12px 30px rgba(15,35,60,.24), inset 0 0 0 1px rgba(25,80,140,.08);
+            }
+            video {
+                position: static !important;
+                width: 100% !important;
+                height: 100% !important;
+                display: block;
+                border: 0 !important;
+                border-radius: 0 !important;
+                object-fit: cover;
+                transform: scaleX(-1);
+                cursor: default !important;
+            }
+            .live-dot {
+                position: absolute;
+                top: 13px;
+                right: 13px;
+                width: 8px;
+                height: 8px;
+                border: 2px solid rgba(255,255,255,.9);
+                border-radius: 50%;
+                background: #ef4444;
+                box-shadow: 0 2px 8px rgba(20,30,45,.28), 0 0 0 3px rgba(239,68,68,.18);
+                pointer-events: none;
+            }
+            .presenter-shell.has-suggestion .facecam-shell { flex: 0 0 48%; }
+            .pip-suggestion {
+                flex: 1; min-height: 0; padding: 12px; border: 1px solid rgba(215,229,242,.9);
+                border-radius: 17px; background: rgba(250,253,255,.96); box-shadow: 0 8px 24px rgba(21,56,91,.12);
+            }
+            .pip-meta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+            .pip-topic, .pip-progress { overflow: hidden; color: #8295a8; font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; text-overflow: ellipsis; white-space: nowrap; }
+            .pip-topic { flex: 1; }
+            .pip-suggestion input { width: 100%; padding: 9px 10px; border: 1px solid #d7e5f1; border-radius: 9px; outline: none; color: #426987; background: white; font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1.2; }
+            .pip-suggestion input:focus { border-color: #79aede; box-shadow: 0 0 0 3px rgba(96,165,250,.12); }
+            .pip-actions { display: grid; grid-template-columns: .7fr 1.3fr; gap: 7px; margin-top: 8px; }
+            .pip-actions button { padding: 8px; border: 1px solid #d8e4ee; border-radius: 8px; color: #6f8396; background: white; font-family: inherit; font-size: 9px; font-weight: 700; line-height: 1; cursor: pointer; }
+            .pip-actions .pip-add { border-color: #4f8bc4; color: white; background: #4f8bc4; }
+        `;
+        pipWindow.document.head.appendChild(pipStyle);
+
+        const presenterShell = pipWindow.document.createElement('div');
+        presenterShell.className = 'presenter-shell';
+        const facecamShell = pipWindow.document.createElement('div');
+        facecamShell.className = 'facecam-shell';
+        const liveDot = pipWindow.document.createElement('span');
+        liveDot.className = 'live-dot';
+        facecamVideo.style.cssText = '';
+        if (facecamVideo) facecamShell.append(facecamVideo, liveDot);
+        else facecamShell.hidden = true;
+
+        const suggestionPanel = pipWindow.document.createElement('section');
+        suggestionPanel.className = 'pip-suggestion';
+        suggestionPanel.innerHTML = '<div class="pip-meta"><span class="pip-topic"></span><span class="pip-progress"></span></div><input type="text" maxlength="36" aria-label="Edit cloud suggestion"><div class="pip-actions"><button class="pip-skip" type="button">Skip</button><button class="pip-add" type="button">Add to cloud</button></div>';
+        suggestionPanel.querySelector('.pip-skip').addEventListener('click', advancePlannedTopic);
+        suggestionPanel.querySelector('.pip-add').addEventListener('click', () => {
+            const value = suggestionPanel.querySelector('input').value.trim();
+            if (!value) return;
+            createTopicTag(value, slide.clientWidth - 45, slide.clientHeight * .5);
+            advancePlannedTopic();
+        });
+        suggestionPanel.querySelector('input').addEventListener('keydown', event => {
+            if (event.key === 'Enter') suggestionPanel.querySelector('.pip-add').click();
+        });
+        presenterShell.append(facecamShell);
+        pipWindow.document.body.appendChild(presenterShell);
+        popoutFacecamButton.hidden = true;
+        pipWindow.addEventListener('pagehide', () => {
+            window.currentPiPWindow = null;
+            if (!isRecording || !facecamVideo) return;
+            facecamVideo.style.cssText = '';
+            facecamVideo.style.top = `${window.innerHeight - 180}px`;
+            facecamVideo.style.left = `${window.innerWidth - 180}px`;
+            document.body.appendChild(facecamVideo);
+            popoutFacecamButton.hidden = false;
+        }, { once: true });
+    } catch (error) {
+        console.warn('Could not open the floating facecam:', error);
+    }
+}
+
+popoutFacecamButton.addEventListener('click', openFacecamPictureInPicture);
 
 function loadRecordings() {
     const recordings = JSON.parse(localStorage.getItem(RECORDING_STORAGE_KEY)) || [];
@@ -207,128 +1056,47 @@ function saveRecordingToList(fileName) {
     loadRecordings();
 }
 
-async function startRecording() {
+async function startRecording(fileHandle, options) {
     let audioStream;
-    let fileHandle;
-    let pipWindow = null;
 
     try {
-        // 1. Initialize Facecam PiP Window immediately (requires user gesture)
-        if (facecamToggle.checked && 'documentPictureInPicture' in window) {
-            try {
-                pipWindow = await window.documentPictureInPicture.requestWindow({
-                    width: 170,
-                    height: 170,
-                });
+        // Screen selection runs first and directly from the confirmation click.
+        const videoStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
 
-                // Copy styles/stylesheets to the PiP window
-                [...document.styleSheets].forEach((styleSheet) => {
+        if (options.facecam) {
+            try {
+                const cameraStream = await navigator.mediaDevices.getUserMedia({
+                    audio: options.microphone,
+                    video: true
+                });
+                if (options.microphone) audioStream = new MediaStream(cameraStream.getAudioTracks());
+                facecamStream = new MediaStream(cameraStream.getVideoTracks());
+            } catch (err) {
+                console.warn('Could not get camera or microphone. Continuing with screen only.', err);
+                if (options.microphone) {
                     try {
-                        const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
-                        const style = document.createElement('style');
-                        style.textContent = cssRules;
-                        pipWindow.document.head.appendChild(style);
-                    } catch (e) {
-                        const link = document.createElement('link');
-                        link.rel = 'stylesheet';
-                        link.type = styleSheet.type;
-                        link.media = styleSheet.media;
-                        link.href = styleSheet.href;
-                        pipWindow.document.head.appendChild(link);
+                        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    } catch (audioError) {
+                        console.warn('Could not get microphone audio. Recording without audio.', audioError);
                     }
-                });
-
-                // Initial styling for the PiP window body
-                pipWindow.document.body.style.backgroundColor = 'transparent'; // Or match theme
-                pipWindow.document.body.style.display = 'flex';
-                pipWindow.document.body.style.justifyContent = 'center';
-                pipWindow.document.body.style.alignItems = 'center';
-                pipWindow.document.body.style.margin = '0';
-
-                // Track it globally to close later
-                window.currentPiPWindow = pipWindow;
-
-            } catch (err) {
-                console.warn("Failed to open Document PiP window:", err);
-            }
-        }
-
-        // 2. Get Audio/Video permissions
-        if (facecamToggle.checked) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-                audioStream = new MediaStream(stream.getAudioTracks());
-                facecamStream = new MediaStream(stream.getVideoTracks());
-            } catch (err) {
-                console.warn("Could not get camera and microphone. Recording without them.", err);
-                if (pipWindow) {
-                    pipWindow.close();
-                    window.currentPiPWindow = null;
-                    pipWindow = null;
                 }
             }
-        } else {
+        } else if (options.microphone) {
             try {
                 audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             } catch (err) {
-                console.warn("Could not get microphone audio. Recording without audio.", err);
+                console.warn('Could not get microphone audio. Recording without audio.', err);
             }
         }
 
-        // 3. Get the output file handle before showing the screen picker
-        if ('showSaveFilePicker' in window) {
-            try {
-                fileHandle = await getOutputFileHandle();
-            } catch (err) {
-                if (err.name === 'AbortError') {
-                    // User cancelled the file picker - stop everything
-                    console.log("User cancelled file picker.");
-                    if (audioStream) audioStream.getTracks().forEach(track => track.stop());
-                    if (facecamStream) facecamStream.getTracks().forEach(track => track.stop());
-                    if (pipWindow) {
-                        pipWindow.close();
-                        window.currentPiPWindow = null;
-                    }
-                    return;
-                } else {
-                    // Other error (e.g. SecurityError due to activation consumption)
-                    // Log warning and proceed to fallback recording (Blob download)
-                    console.warn("File Picker failed (likely permission/activation issue), falling back to download:", err);
-                    fileHandle = null;
-                }
-            }
-        }
-
-        // 4. Get Video stream
-        let videoStream;
-        try {
-            videoStream = await navigator.mediaDevices.getDisplayMedia({
-                video: true
-            });
-        } catch (err) {
-            if (audioStream) audioStream.getTracks().forEach(track => track.stop());
-            if (facecamStream) facecamStream.getTracks().forEach(track => track.stop());
-            if (pipWindow) {
-                pipWindow.close();
-                window.currentPiPWindow = null;
-            }
-            throw err;
-        }
-
-        // Handle "Stop sharing"
         const videoTrack = videoStream.getVideoTracks()[0];
-        videoTrack.onended = () => {
-            stopRecording();
-        };
+        videoTrack.onended = stopRecording;
 
         const tracks = [...videoStream.getTracks()];
-        if (audioStream) {
-            tracks.push(...audioStream.getAudioTracks());
-        }
+        if (audioStream) tracks.push(...audioStream.getAudioTracks());
 
         stream = new MediaStream(tracks);
 
-        // If facecam is enabled, create and add the video element
         if (facecamStream) {
             facecamVideo = document.createElement('video');
             facecamVideo.id = 'facecamVideo';
@@ -336,55 +1104,18 @@ async function startRecording() {
             facecamVideo.autoplay = true;
             facecamVideo.playsInline = true;
             facecamVideo.muted = true;
+            facecamVideo.style.top = `${window.innerHeight - 180}px`;
+            facecamVideo.style.left = `${window.innerWidth - 180}px`;
+            document.body.appendChild(facecamVideo);
+            makeDraggable(facecamVideo);
+            popoutFacecamButton.hidden = !('documentPictureInPicture' in window);
+        }
 
-            if (pipWindow) {
-                // Style for PiP
-                facecamVideo.style.position = 'static';
-                facecamVideo.style.width = '100%';
-                facecamVideo.style.height = '100%';
-                facecamVideo.style.maxWidth = '100vw';
-                facecamVideo.style.maxHeight = '100vh';
-                facecamVideo.style.borderRadius = '0'; // Let the window shape dictate, or keep 50% if user wants circle inside square window? 
-                // User asked for style maintenance. The style puts a border and radius.
-                // Let's keep the class/ID styles but override positioning.
-                // However, ID #facecamVideo has fixed position. We need to override it.
-                facecamVideo.style.position = 'static';
-
-                // IMPORTANT: The user mentioned "maintain the thumbnail size". 
-                // If we make the window small (170x170), filling it should be good.
-                // But the CSS has specific width/height: 150px.
-                // Let's just append it.
-
-                pipWindow.document.body.appendChild(facecamVideo);
-
-                // Facecam video ID styles might conflict if we copied stylesheets.
-                // #facecamVideo { position: fixed ... }
-                // We must override this on the element itself or injection.
-                facecamVideo.style.setProperty('position', 'static', 'important');
-                facecamVideo.style.setProperty('width', '100%', 'important');
-                facecamVideo.style.setProperty('height', '100%', 'important');
-                facecamVideo.style.setProperty('border-radius', '0', 'important'); // Make it fill window? Or keep circle?
-                // User said "style missing... maintain the thumbnail size".
-                // Existing style: width 150px, height 150px, border-radius 50%, border 3px solid blue.
-                // If we put this in a 170x170 window:
-                // If we want it to look like the circle, we should probably keep border-radius 0 on the VIDEO and let the user just see the video content, OR keep the circle style and have transparent background in window.
-                // Let's try to match the circle look.
-                facecamVideo.style.setProperty('width', '100%', 'important');
-                facecamVideo.style.setProperty('height', '100%', 'important');
-                facecamVideo.style.setProperty('border-radius', '0', 'important');
-                facecamVideo.style.setProperty('border', 'none', 'important');
-
-                // Actually, for "Picture in Picture", usually you just want the video rect.
-                // But the user specifically mentioned "style missing".
-                // Let's give it the blue border at least.
-                facecamVideo.style.setProperty('border', '3px solid #007aff', 'important');
-
-
-            } else {
-                facecamVideo.style.top = `${window.innerHeight - 170}px`;
-                facecamVideo.style.left = `${window.innerWidth - 170}px`;
-                document.body.appendChild(facecamVideo);
-                makeDraggable(facecamVideo);
+        if ('mediaSession' in navigator && (facecamStream || (plannedTopics.length && audioStream))) {
+            try {
+                navigator.mediaSession.setActionHandler('enterpictureinpicture', openFacecamPictureInPicture);
+            } catch (error) {
+                console.warn('Automatic presenter Picture-in-Picture is not supported:', error);
             }
         }
 
@@ -397,13 +1128,8 @@ async function startRecording() {
             document.body.appendChild(indicator);
         }
 
-        console.log("Audio Tracks: ", stream.getAudioTracks());
-        if (stream.getAudioTracks().length === 0) {
-            console.warn("No audio track was found. Audio will not be recorded.");
-        }
-
-        // Countdown before final confirmation/start
-        await runCountdown(5);
+        await runCountdown(3);
+        if (videoTrack.readyState === 'ended' || !stream) return;
 
         if (fileHandle) {
             await startRecordingWithFileSystemAccess(fileHandle);
@@ -413,11 +1139,11 @@ async function startRecording() {
         }
 
     } catch (err) {
-        console.error("Error starting recording: ", err);
-        // Handle cases where user denies screen/audio permission or other errors
+        console.error('Error starting recording:', err);
         if (audioStream) audioStream.getTracks().forEach(track => track.stop());
         if (facecamStream) facecamStream.getTracks().forEach(track => track.stop());
         if (stream) stream.getTracks().forEach(track => track.stop());
+        popoutFacecamButton.hidden = true;
     }
 }
 
@@ -436,40 +1162,40 @@ async function getOutputFileHandle() {
 
 async function startRecordingWithFileSystemAccess(fileHandle) {
     try {
-        recordedChunks = [];
         startTime = Date.now();
         writableStream = await fileHandle.createWritable();
+        const activeWriter = writableStream;
+        let writeChain = Promise.resolve();
+        let writeError = null;
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
 
         mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0) {
-                recordedChunks.push(event.data);
+                writeChain = writeChain
+                    .then(() => activeWriter.write(event.data))
+                    .catch(error => {
+                        writeError = error;
+                        console.error('Recording sync failed:', error);
+                    });
             }
         };
 
         mediaRecorder.onstop = async () => {
-            const blob = new Blob(recordedChunks, { type: 'video/webm' });
-            
             try {
-                const fixedBlob = await makeSeekable(blob);
-                if (writableStream) {
-                    await writableStream.write(fixedBlob);
-                    await writableStream.close();
-                    writableStream = null;
-                }
-            } catch (err) {
-                console.error("Error fixing seekability:", err);
-                // Fallback to original blob if fixing fails
-                if (writableStream) {
-                    await writableStream.write(blob);
-                    await writableStream.close();
-                    writableStream = null;
-                }
+                await writeChain;
+                if (writeError) throw writeError;
+                await activeWriter.close();
+                saveRecordingToList(fileHandle.name);
+            } catch (error) {
+                console.error('Could not finish the synced recording:', error);
+                try { await activeWriter.abort(); } catch (_) { /* Stream may already be closed. */ }
+                alert('The recording could not be fully saved. Check available disk space and try again.');
+            } finally {
+                if (writableStream === activeWriter) writableStream = null;
             }
-            saveRecordingToList(fileHandle.name);
         };
 
-        mediaRecorder.start(1000); // Slice into 1s chunks
+        mediaRecorder.start(5000);
         isRecording = true;
         toggleRecordingBtn.querySelector('.record-label').textContent = 'Stop recording';
         toggleRecordingBtn.classList.add('recording');
@@ -558,6 +1284,12 @@ async function makeSeekable(blob) {
 }
 
 function stopRecording() {
+    popoutFacecamButton.hidden = true;
+    if ('mediaSession' in navigator) {
+        try {
+            navigator.mediaSession.setActionHandler('enterpictureinpicture', null);
+        } catch (_) { /* The action is not supported in this browser. */ }
+    }
     if (mediaRecorder && mediaRecorder.state === 'recording') {
         mediaRecorder.stop();
     }
