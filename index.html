@@ -17,6 +17,7 @@
                 <div class="topic-cloud" id="topicCloud" aria-label="Topic cloud"></div>
 
                 <div class="slide-content">
+                    <div class="added-tag-readout" id="addedTagReadout" aria-live="polite" hidden></div>
                     <span class="privacy-note"><span class="privacy-dot"></span> Made for ideas worth sharing</span>
                     <div class="logo-area">
                         <img id="brandLogo" alt="Your logo">
@@ -62,7 +63,7 @@
                         <span id="slidePresenterTopic">Next cloud term</span>
                         <span id="slidePresenterProgress"></span>
                     </div>
-                    <input id="slidePresenterInput" type="text" maxlength="36" aria-label="Edit cloud suggestion">
+                    <textarea id="slidePresenterInput" rows="3" maxlength="500" aria-label="Edit cloud suggestion"></textarea>
                     <div class="slide-presenter-actions">
                         <button id="slidePresenterSkip" type="button">Skip</button>
                         <button id="slidePresenterAdd" type="button">Add to cloud</button>

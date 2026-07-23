@@ -27,6 +27,7 @@ const destinationDetail = document.getElementById('destinationDetail');
 const popoutFacecamButton = document.getElementById('popoutFacecamButton');
 const slide = document.querySelector('.slide');
 const topicCloud = document.getElementById('topicCloud');
+const addedTagReadout = document.getElementById('addedTagReadout');
 const screenshotButton = document.getElementById('screenshotButton');
 const screenshotStatus = document.getElementById('screenshotStatus');
 const plannerInputView = document.getElementById('plannerInputView');
@@ -78,6 +79,7 @@ let plannerData = [];
 let topicClusterCenters = new Map();
 let completedTopicLabels = new Map();
 let topicClusterLayouts = new Map();
+let addedTagReadoutTimer = null;
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
@@ -411,6 +413,9 @@ function createTopicTag(text, x, y, topic = null) {
     tag.style.setProperty('--float-delay', `${Math.random() * -3}s`);
     topicCloud.appendChild(tag);
     topicTags.push(tag);
+    clearTimeout(addedTagReadoutTimer);
+    addedTagReadout.textContent = text;
+    addedTagReadout.hidden = false;
     screenshotButton.hidden = false;
     clearCloudButton.hidden = false;
     setTimeout(() => {
@@ -481,10 +486,11 @@ function arrangeTopicCloud() {
             ? reservedLayout?.scale || plannerDensity
             : directDensity;
         const visualScale = Number(tag.dataset.visualScale || .5);
-        const baseSize = Math.max(5, (9 + visualScale * 9) * tagDensity);
-        const basePadY = Math.max(1.5, (5 + visualScale * 3) * tagDensity);
-        const basePadX = Math.max(3, (9 + visualScale * 5) * tagDensity);
-        const baseMaxWidth = Math.max(64, 190 * tagDensity);
+        const plannerCompactness = tag.dataset.cloudSource === 'planner' ? .82 : 1;
+        const baseSize = Math.max(4.5, (9 + visualScale * 9) * tagDensity * plannerCompactness);
+        const basePadY = Math.max(1.2, (5 + visualScale * 3) * tagDensity * plannerCompactness);
+        const basePadX = Math.max(2.5, (9 + visualScale * 5) * tagDensity * plannerCompactness);
+        const baseMaxWidth = Math.max(58, 190 * tagDensity * plannerCompactness);
         tag.style.setProperty('--tag-size', `${baseSize.toFixed(1)}px`);
         tag.style.setProperty('--tag-pad-y', `${basePadY.toFixed(1)}px`);
         tag.style.setProperty('--tag-pad-x', `${basePadX.toFixed(1)}px`);
@@ -833,14 +839,21 @@ function renderPlannerWorkspace() {
                 savePlannerData();
                 updateTopicSelectionState();
             });
-            const input = document.createElement('input');
+            const input = document.createElement('textarea');
             input.className = 'planner-term-text';
+            input.rows = 1;
             input.value = term.text;
             input.placeholder = 'Cloud term';
+            const resizeTermInput = () => {
+                input.style.height = 'auto';
+                input.style.height = `${input.scrollHeight}px`;
+            };
             input.addEventListener('input', () => {
                 term.text = input.value;
+                resizeTermInput();
                 savePlannerData();
             });
+            requestAnimationFrame(resizeTermInput);
             const remove = document.createElement('button');
             remove.type = 'button';
             remove.className = 'planner-term-remove';
@@ -917,7 +930,7 @@ slidePresenterAdd.addEventListener('click', () => {
     advancePlannedTopic();
 });
 slidePresenterInput.addEventListener('keydown', event => {
-    if (event.key === 'Enter') slidePresenterAdd.click();
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') slidePresenterAdd.click();
 });
 
 prepareTopicsButton.addEventListener('click', () => {
@@ -960,6 +973,11 @@ function advancePlannedTopic() {
         plannedTopicIndex = 0;
         slidePresenter.hidden = true;
         slide.classList.remove('presenter-active');
+        clearTimeout(addedTagReadoutTimer);
+        addedTagReadoutTimer = setTimeout(() => {
+            addedTagReadout.hidden = true;
+            addedTagReadout.textContent = '';
+        }, 25000);
         heroTitle.textContent = 'Turn your ideas into moments worth sharing.';
         heroSubtitle.textContent = 'Capture your screen, tell your story, and share your best work—right from your browser.';
         requestAnimationFrame(arrangeTopicCloud);
@@ -1015,6 +1033,9 @@ clearCloudButton.addEventListener('click', () => {
         completedTopicLabels.forEach(label => label.remove());
         completedTopicLabels.clear();
         topicCloud.style.removeProperty('--cloud-density');
+        clearTimeout(addedTagReadoutTimer);
+        addedTagReadout.hidden = true;
+        addedTagReadout.textContent = '';
         topicCloud.classList.remove('clearing');
         screenshotButton.hidden = true;
         clearCloudButton.hidden = true;
@@ -1396,8 +1417,8 @@ async function openFacecamPictureInPicture() {
             .pip-meta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
             .pip-topic, .pip-progress { overflow: hidden; color: #8295a8; font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; text-overflow: ellipsis; white-space: nowrap; }
             .pip-topic { flex: 1; }
-            .pip-suggestion input { width: 100%; padding: 9px 10px; border: 1px solid #d7e5f1; border-radius: 9px; outline: none; color: #426987; background: white; font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1.2; }
-            .pip-suggestion input:focus { border-color: #79aede; box-shadow: 0 0 0 3px rgba(96,165,250,.12); }
+            .pip-suggestion textarea { width: 100%; min-height: 62px; resize: none; padding: 9px 10px; border: 1px solid #d7e5f1; border-radius: 9px; outline: none; color: #426987; background: white; font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1.3; }
+            .pip-suggestion textarea:focus { border-color: #79aede; box-shadow: 0 0 0 3px rgba(96,165,250,.12); }
             .pip-actions { display: grid; grid-template-columns: .7fr 1.3fr; gap: 7px; margin-top: 8px; }
             .pip-actions button { padding: 8px; border: 1px solid #d8e4ee; border-radius: 8px; color: #6f8396; background: white; font-family: inherit; font-size: 9px; font-weight: 700; line-height: 1; cursor: pointer; }
             .pip-actions .pip-add { border-color: #4f8bc4; color: white; background: #4f8bc4; }
@@ -1416,16 +1437,16 @@ async function openFacecamPictureInPicture() {
 
         const suggestionPanel = pipWindow.document.createElement('section');
         suggestionPanel.className = 'pip-suggestion';
-        suggestionPanel.innerHTML = '<div class="pip-meta"><span class="pip-topic"></span><span class="pip-progress"></span></div><input type="text" maxlength="36" aria-label="Edit cloud suggestion"><div class="pip-actions"><button class="pip-skip" type="button">Skip</button><button class="pip-add" type="button">Add to cloud</button></div>';
+        suggestionPanel.innerHTML = '<div class="pip-meta"><span class="pip-topic"></span><span class="pip-progress"></span></div><textarea rows="3" maxlength="500" aria-label="Edit cloud suggestion"></textarea><div class="pip-actions"><button class="pip-skip" type="button">Skip</button><button class="pip-add" type="button">Add to cloud</button></div>';
         suggestionPanel.querySelector('.pip-skip').addEventListener('click', advancePlannedTopic);
         suggestionPanel.querySelector('.pip-add').addEventListener('click', () => {
-            const value = suggestionPanel.querySelector('input').value.trim();
+            const value = suggestionPanel.querySelector('textarea').value.trim();
             if (!value) return;
             createTopicTag(value, slide.clientWidth - 45, slide.clientHeight * .5, plannedTopics[plannedTopicIndex]);
             advancePlannedTopic();
         });
-        suggestionPanel.querySelector('input').addEventListener('keydown', event => {
-            if (event.key === 'Enter') suggestionPanel.querySelector('.pip-add').click();
+        suggestionPanel.querySelector('textarea').addEventListener('keydown', event => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') suggestionPanel.querySelector('.pip-add').click();
         });
         presenterShell.append(facecamShell);
         pipWindow.document.body.appendChild(presenterShell);
