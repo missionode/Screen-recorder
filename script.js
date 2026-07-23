@@ -49,6 +49,8 @@ const downloadLatestCsvButton = document.getElementById('downloadLatestCsvButton
 const plannerGroupsElement = document.getElementById('plannerGroups');
 const plannerEmpty = document.getElementById('plannerEmpty');
 const addPlannerTopicButton = document.getElementById('addPlannerTopicButton');
+const plannerSearch = document.getElementById('plannerSearch');
+const plannerSearchStatus = document.getElementById('plannerSearchStatus');
 const openPresenterButton = document.getElementById('openPresenterButton');
 const selectedTermCount = document.getElementById('selectedTermCount');
 const slidePresenter = document.getElementById('slidePresenter');
@@ -73,6 +75,9 @@ let topicTags = [];
 let plannedTopics = [];
 let plannedTopicIndex = 0;
 let plannerData = [];
+let topicClusterCenters = new Map();
+let completedTopicLabels = new Map();
+let topicClusterLayouts = new Map();
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
@@ -80,11 +85,20 @@ const CLOUD_PLANNER_STORAGE_KEY = 'screenRecorderCloudPlanner';
 const CLOUD_PLANNER_SELECTION_MODE_KEY = 'screenRecorderCloudPlannerSelectionMode';
 const MAX_LOGO_HISTORY = 8;
 const TOPIC_COLORS = ['#547f9f', '#687da8', '#4f898f', '#7478a4', '#5d8194'];
+const TOPIC_SYMBOLS = ['●', '◆', '▲', '■', '✦', '⬢'];
+const TOPIC_SYMBOL_COLORS = ['#3b82f6', '#7c6ee6', '#1597a5', '#5b7fd6', '#8b6fc2', '#2686b8'];
+const CENTER_CLOUD_SAFE_WIDTH = 650;
+const PROTECTED_CLOUD_SELECTORS = [
+    '.privacy-note', '.logo-area', '.eyebrow', '#heroTitle', '#heroSubtitle',
+    '.controls', '.local-note', '.settings-button', '.planner-button',
+    '.screenshot-button', '.clear-cloud-button', '.slide-presenter', '.slide-number'
+];
 let cloudSlots = createTopicSlots();
+const topicClusterSymbols = new Map();
 
 function createTopicSlots() {
     const slots = [];
-    while (slots.length < 520) {
+    while (slots.length < 2200) {
         const x = 4 + Math.random() * 92;
         const y = 6 + Math.random() * 88;
         const rawAngle = (Math.random() - .5) * 14;
@@ -92,6 +106,214 @@ function createTopicSlots() {
         slots.push([x, y, angle]);
     }
     return slots;
+}
+
+function precalculateTopicGrid(items) {
+    topicClusterLayouts.clear();
+    topicClusterCenters.clear();
+    const groups = new Map();
+    items.forEach(item => {
+        if (!item.groupId) return;
+        if (!groups.has(item.groupId)) groups.set(item.groupId, { count: 0 });
+        groups.get(item.groupId).count += 1;
+    });
+    const groupIndexes = new Map();
+    items.forEach(item => {
+        if (!item.groupId) return;
+        item.gridIndex = groupIndexes.get(item.groupId) || 0;
+        item.gridCount = groups.get(item.groupId).count;
+        groupIndexes.set(item.groupId, item.gridIndex + 1);
+    });
+    const entries = [...groups.entries()];
+    if (!entries.length) return;
+
+    const width = topicCloud.clientWidth;
+    const height = topicCloud.clientHeight;
+    const corridorWidth = Math.min(CENTER_CLOUD_SAFE_WIDTH, Math.max(0, width - 240));
+    const sideWidth = (width - corridorWidth) / 2;
+    const edgeInset = Math.max(52, Math.min(78, height * .11));
+    const usableTop = edgeInset;
+    const usableBottom = height - edgeInset;
+    const usableHeight = Math.max(1, usableBottom - usableTop);
+    const leftRows = Math.ceil(entries.length / 2);
+    const rightRows = Math.floor(entries.length / 2);
+
+    entries.forEach(([groupId, group], index) => {
+        const isLeft = index % 2 === 0;
+        const row = Math.floor(index / 2);
+        const rows = isLeft ? leftRows : Math.max(1, rightRows);
+        const cellTop = usableTop + usableHeight * row / rows;
+        const cellBottom = usableTop + usableHeight * (row + 1) / rows;
+        const margin = Math.max(8, Math.min(18, sideWidth * .08, (cellBottom - cellTop) * .08));
+        const left = isLeft ? margin : width - sideWidth + margin;
+        const right = isLeft ? sideWidth - margin : width - margin;
+        const top = cellTop + margin;
+        const bottom = cellBottom - margin;
+        const areaPerTag = Math.max(1, (right - left) * (bottom - top) / Math.max(1, group.count));
+        const scale = Math.max(.34, Math.min(1, Math.sqrt(areaPerTag / 3200)));
+        topicClusterLayouts.set(groupId, {
+            left, right, top, bottom, scale,
+            x: (left + right) / 2 / width * 100,
+            y: (top + bottom) / 2 / height * 100
+        });
+    });
+}
+
+function getTopicCluster(groupId) {
+    if (!groupId) return null;
+    if (topicClusterCenters.has(groupId)) return topicClusterCenters.get(groupId);
+    if (!topicClusterSymbols.has(groupId)) {
+        topicClusterSymbols.set(groupId, TOPIC_SYMBOLS[topicClusterSymbols.size % TOPIC_SYMBOLS.length]);
+    }
+
+    const existing = [...topicClusterCenters.values()];
+    const reservedLayout = topicClusterLayouts.get(groupId);
+    const slideWidth = slide.clientWidth || 1200;
+    const centerSafeWidth = Math.min(CENTER_CLOUD_SAFE_WIDTH, Math.max(0, slideWidth - 240));
+    const sideBoundary = (slideWidth - centerSafeWidth) / 2 / slideWidth * 100;
+    const candidates = cloudSlots.filter(slot =>
+        slot[0] > 6 && slot[0] < 94 && slot[1] > 12 && slot[1] < 88 &&
+        (slot[0] < sideBoundary || slot[0] > 100 - sideBoundary)
+    );
+    const distanceFromNearestCluster = slot => existing.length
+        ? Math.min(...existing.map(cluster => Math.hypot(slot[0] - cluster.x, slot[1] - cluster.y)))
+        : 100;
+    const wellSpaced = candidates.filter(slot => distanceFromNearestCluster(slot) >= 30);
+    const pool = wellSpaced.length ? wellSpaced : [...candidates].sort((a, b) =>
+        distanceFromNearestCluster(b) - distanceFromNearestCluster(a)
+    ).slice(0, Math.max(1, Math.ceil(candidates.length * .08)));
+    const selected = reservedLayout
+        ? [reservedLayout.x, reservedLayout.y]
+        : pool[Math.floor(Math.random() * pool.length)] || [50, 50];
+    const symbol = topicClusterSymbols.get(groupId);
+    const cluster = {
+        x: selected[0],
+        y: selected[1],
+        color: TOPIC_COLORS[topicClusterCenters.size % TOPIC_COLORS.length],
+        phase: Math.random() * Math.PI * 2,
+        symbol,
+        symbolColor: TOPIC_SYMBOL_COLORS[TOPIC_SYMBOLS.indexOf(symbol) % TOPIC_SYMBOL_COLORS.length]
+    };
+    topicClusterCenters.set(groupId, cluster);
+    return cluster;
+}
+
+function positionCompletedTopicLabel(groupId, animate = false) {
+    const label = completedTopicLabels.get(groupId);
+    const cluster = getTopicCluster(groupId);
+    if (!label || !cluster) return;
+    if (!animate) label.classList.add('clustered');
+    label.style.left = `${cluster.x}%`;
+    label.style.top = `${cluster.y}%`;
+    label.style.setProperty('--cluster-color', cluster.color);
+    label.style.setProperty('--topic-symbol-color', cluster.symbolColor);
+    const marker = label.querySelector('.completed-topic-symbol');
+    if (marker) marker.textContent = cluster.symbol;
+}
+
+function setCompletedTopicTitle(title, text, symbol) {
+    const marker = document.createElement('span');
+    marker.className = 'completed-topic-symbol';
+    marker.setAttribute('aria-hidden', 'true');
+    marker.textContent = symbol;
+    const titleText = document.createElement('span');
+    titleText.className = 'completed-topic-title-text';
+    titleText.textContent = text;
+    title.replaceChildren(marker, titleText);
+}
+
+function moveClusterToSafeLabelPosition(groupId, label) {
+    const cluster = getTopicCluster(groupId);
+    if (topicClusterLayouts.has(groupId)) return;
+    const slideBounds = slide.getBoundingClientRect();
+    const safety = 42;
+    const width = label.offsetWidth;
+    const height = label.offsetHeight;
+    const tagCount = topicTags.filter(tag => tag.dataset.topicGroup === groupId).length;
+    const orbitHalo = Math.min(72, 48 + tagCount * 2);
+    const blocked = [
+        ...PROTECTED_CLOUD_SELECTORS.map(selector => slide.querySelector(selector)).filter(Boolean),
+        ...topicCloud.querySelectorAll('.completed-topic-label')
+    ].filter(element => element !== label).map(element => {
+        const bounds = element.getBoundingClientRect();
+        return {
+            left: bounds.left - slideBounds.left - safety,
+            right: bounds.right - slideBounds.left + safety,
+            top: bounds.top - slideBounds.top - safety,
+            bottom: bounds.bottom - slideBounds.top + safety
+        };
+    });
+    const centerSafeWidth = Math.min(CENTER_CLOUD_SAFE_WIDTH, Math.max(0, slide.clientWidth - 240));
+    blocked.push({
+        left: (slide.clientWidth - centerSafeWidth) / 2,
+        right: (slide.clientWidth + centerSafeWidth) / 2,
+        top: 0,
+        bottom: slide.clientHeight
+    });
+    const candidates = [...cloudSlots].sort((a, b) =>
+        Math.hypot(a[0] - cluster.x, a[1] - cluster.y) -
+        Math.hypot(b[0] - cluster.x, b[1] - cluster.y)
+    );
+    const safe = candidates.find(slot => {
+        const centerX = slide.clientWidth * slot[0] / 100;
+        const centerY = slide.clientHeight * slot[1] / 100;
+        const bounds = {
+            left: centerX - width / 2 - orbitHalo,
+            right: centerX + width / 2 + orbitHalo,
+            top: centerY - height / 2 - orbitHalo,
+            bottom: centerY + height / 2 + orbitHalo
+        };
+        const intersects = other => !(
+            bounds.right <= other.left || bounds.left >= other.right ||
+            bounds.bottom <= other.top || bounds.top >= other.bottom
+        );
+        return bounds.left >= safety && bounds.right <= slide.clientWidth - safety &&
+            bounds.top >= safety && bounds.bottom <= slide.clientHeight - safety &&
+            !blocked.some(intersects);
+    });
+    if (safe) {
+        cluster.x = safe[0];
+        cluster.y = safe[1];
+    }
+}
+
+function finalizeTopicCluster(topic) {
+    if (!topic?.groupId || !topic.context) return;
+    const existing = completedTopicLabels.get(topic.groupId);
+    if (existing) {
+        const cluster = getTopicCluster(topic.groupId);
+        setCompletedTopicTitle(existing.querySelector('strong'), topic.context, cluster.symbol);
+        const description = existing.querySelector('span');
+        description.textContent = topic.description || '';
+        description.hidden = !description.textContent;
+        moveClusterToSafeLabelPosition(topic.groupId, existing);
+        positionCompletedTopicLabel(topic.groupId);
+        return;
+    }
+
+    const slideBounds = slide.getBoundingClientRect();
+    const titleBounds = heroTitle.getBoundingClientRect();
+    const subtitleBounds = heroSubtitle.getBoundingClientRect();
+    const label = document.createElement('section');
+    label.className = 'completed-topic-label';
+    label.dataset.topicGroup = topic.groupId;
+    label.style.left = `${titleBounds.left - slideBounds.left + titleBounds.width / 2}px`;
+    label.style.top = `${(titleBounds.top + subtitleBounds.bottom) / 2 - slideBounds.top}px`;
+    const title = document.createElement('strong');
+    setCompletedTopicTitle(title, topic.context, getTopicCluster(topic.groupId).symbol);
+    const description = document.createElement('span');
+    description.textContent = topic.description || '';
+    description.hidden = !description.textContent;
+    label.append(title, description);
+    topicCloud.appendChild(label);
+    completedTopicLabels.set(topic.groupId, label);
+    moveClusterToSafeLabelPosition(topic.groupId, label);
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        label.classList.add('clustered');
+        positionCompletedTopicLabel(topic.groupId, true);
+        setTimeout(arrangeTopicCloud, 700);
+    }));
 }
 
 slide.addEventListener('click', event => {
@@ -153,14 +375,32 @@ function commitTopicEntry() {
     createTopicTag(text, x, y);
 }
 
-function createTopicTag(text, x, y) {
+function createTopicTag(text, x, y, topic = null) {
     const tag = document.createElement('span');
     tag.className = 'topic-tag settling';
-    tag.textContent = text;
+    const tagText = document.createElement('span');
+    tagText.className = 'topic-tag-text';
+    tagText.textContent = text;
+    tag.appendChild(tagText);
     tag.style.left = `${x}px`;
     tag.style.top = `${y}px`;
-    tag.style.setProperty('--tag-color', TOPIC_COLORS[topicTags.length % TOPIC_COLORS.length]);
+    tag.dataset.cloudSource = topic?.groupId ? 'planner' : 'direct';
+    if (topic?.groupId) tag.dataset.topicGroup = topic.groupId;
+    if (Number.isInteger(topic?.gridIndex)) tag.dataset.gridIndex = String(topic.gridIndex);
+    if (Number.isInteger(topic?.gridCount)) tag.dataset.gridCount = String(topic.gridCount);
+    const topicCluster = getTopicCluster(topic?.groupId);
+    if (topicCluster) {
+        tag.dataset.topicSymbol = topicCluster.symbol;
+        tag.style.setProperty('--topic-symbol-color', topicCluster.symbolColor);
+        const marker = document.createElement('span');
+        marker.className = 'topic-tag-symbol';
+        marker.setAttribute('aria-hidden', 'true');
+        marker.textContent = topicCluster.symbol;
+        tag.replaceChildren(marker, tagText);
+    }
+    tag.style.setProperty('--tag-color', topicCluster?.color || TOPIC_COLORS[topicTags.length % TOPIC_COLORS.length]);
     const visualScale = Math.random();
+    tag.dataset.visualScale = visualScale.toFixed(3);
     tag.style.setProperty('--tag-size', `${10 + Math.round(visualScale * 10)}px`);
     tag.style.setProperty('--tag-pad-y', `${6 + Math.round(visualScale * 3)}px`);
     tag.style.setProperty('--tag-pad-x', `${10 + Math.round(visualScale * 5)}px`);
@@ -192,16 +432,15 @@ function arrangeTopicCloud() {
     const cloudHeight = topicCloud.clientHeight;
     const placedBounds = [];
     const slideBounds = slide.getBoundingClientRect();
-    const protectedSelectors = [
-        '.privacy-note', '.logo-area', '.eyebrow', '#heroTitle', '#heroSubtitle',
-        '.controls', '.local-note', '.settings-button', '.planner-button', '.screenshot-button', '.clear-cloud-button', '.slide-presenter', '.slide-number'
-    ];
-    const protectedBounds = protectedSelectors
-        .map(selector => slide.querySelector(selector))
-        .filter(Boolean)
+    const protectedBounds = [...PROTECTED_CLOUD_SELECTORS, '.completed-topic-label']
+        .flatMap(selector => [...slide.querySelectorAll(selector)])
         .map(element => {
             const bounds = element.getBoundingClientRect();
-            const safety = 16;
+            const safety = element.matches('.privacy-note')
+                ? 58
+                : element.matches('.logo-area, #heroTitle, #heroSubtitle, .controls, .local-note')
+                    ? 34
+                    : 22;
             return {
                 left: bounds.left - slideBounds.left - safety,
                 right: bounds.right - slideBounds.left + safety,
@@ -209,39 +448,176 @@ function arrangeTopicCloud() {
                 bottom: bounds.bottom - slideBounds.top + safety
             };
         });
+    const centerSafeWidth = Math.min(CENTER_CLOUD_SAFE_WIDTH, Math.max(0, cloudWidth - 240));
+    protectedBounds.push({
+        left: (cloudWidth - centerSafeWidth) / 2,
+        right: (cloudWidth + centerSafeWidth) / 2,
+        top: 0,
+        bottom: cloudHeight
+    });
 
-    topicTags.forEach((tag, index) => {
-        const width = tag.offsetWidth;
-        const height = tag.offsetHeight;
-        const padding = 8;
+    const plannerTags = topicTags.filter(tag => tag.dataset.cloudSource === 'planner');
+    const directTags = topicTags.filter(tag => tag.dataset.cloudSource !== 'planner');
+    const groupedCounts = new Map();
+    plannerTags.forEach(tag => {
+        const groupId = tag.dataset.topicGroup;
+        if (groupId) groupedCounts.set(groupId, (groupedCounts.get(groupId) || 0) + 1);
+    });
+    const largestGroup = Math.max(0, ...groupedCounts.values());
+    const plannerDensity = Math.max(.34, Math.min(1,
+        1.08 - plannerTags.length * .007 - groupedCounts.size * .02 - largestGroup * .03
+    ));
+    const directDensity = Math.max(.34, Math.min(1, 1.08 - directTags.length * .012));
+    topicCloud.style.setProperty('--cloud-density', plannerDensity.toFixed(2));
+
+    const arrangedTags = [
+        ...plannerTags,
+        ...directTags
+    ];
+
+    arrangedTags.forEach((tag, index) => {
+        const reservedLayout = topicClusterLayouts.get(tag.dataset.topicGroup);
+        const tagDensity = tag.dataset.cloudSource === 'planner'
+            ? reservedLayout?.scale || plannerDensity
+            : directDensity;
+        const visualScale = Number(tag.dataset.visualScale || .5);
+        const baseSize = Math.max(5, (9 + visualScale * 9) * tagDensity);
+        const basePadY = Math.max(1.5, (5 + visualScale * 3) * tagDensity);
+        const basePadX = Math.max(3, (9 + visualScale * 5) * tagDensity);
+        const baseMaxWidth = Math.max(64, 190 * tagDensity);
+        tag.style.setProperty('--tag-size', `${baseSize.toFixed(1)}px`);
+        tag.style.setProperty('--tag-pad-y', `${basePadY.toFixed(1)}px`);
+        tag.style.setProperty('--tag-pad-x', `${basePadX.toFixed(1)}px`);
+        tag.style.setProperty('--tag-max-width', `${baseMaxWidth.toFixed(0)}px`);
         let selected = null;
 
-        for (const slot of cloudSlots) {
-            const angleInRadians = slot[2] * Math.PI / 180;
-            const rotatedWidth = Math.abs(width * Math.cos(angleInRadians)) + Math.abs(height * Math.sin(angleInRadians));
-            const rotatedHeight = Math.abs(width * Math.sin(angleInRadians)) + Math.abs(height * Math.cos(angleInRadians));
-            const centerX = Math.max(rotatedWidth / 2 + padding, Math.min(cloudWidth - rotatedWidth / 2 - padding, cloudWidth * slot[0] / 100));
-            const centerY = Math.max(rotatedHeight / 2 + padding, Math.min(cloudHeight - rotatedHeight / 2 - padding, cloudHeight * slot[1] / 100));
-            const bounds = {
-                left: centerX - rotatedWidth / 2 - padding,
-                right: centerX + rotatedWidth / 2 + padding,
-                top: centerY - rotatedHeight / 2 - padding,
-                bottom: centerY + rotatedHeight / 2 + padding
-            };
-            const intersects = other => !(
-                bounds.right <= other.left || bounds.left >= other.right ||
-                bounds.bottom <= other.top || bounds.top >= other.bottom
-            );
-            const overlapsTag = placedBounds.some(intersects);
-            const overlapsContent = protectedBounds.some(intersects);
-            if (!overlapsTag && !overlapsContent) {
-                selected = { centerX, centerY, bounds, rotation: slot[2] };
-                break;
-            }
-        }
+        const cluster = getTopicCluster(tag.dataset.topicGroup);
+        const groupTags = cluster
+            ? topicTags.filter(item => item.dataset.topicGroup === tag.dataset.topicGroup)
+            : [];
+        const groupIndex = Number.isInteger(Number(tag.dataset.gridIndex))
+            ? Number(tag.dataset.gridIndex)
+            : groupTags.indexOf(tag);
+        const orbitCount = Math.max(1, Number(tag.dataset.gridCount) || groupTags.length);
+        const clusterLabel = cluster ? completedTopicLabels.get(tag.dataset.topicGroup) : null;
+        const labelHalfWidth = clusterLabel ? clusterLabel.offsetWidth / 2 : 115 * tagDensity;
+        const labelHalfHeight = clusterLabel ? clusterLabel.offsetHeight / 2 : 35 * tagDensity;
+        const outwardX = cluster ? (cluster.x - 50) * cloudWidth / 100 : 0;
+        const outwardY = cluster ? (cluster.y - 50) * cloudHeight / 100 : 0;
+        const outwardLength = Math.max(1, Math.hypot(outwardX, outwardY));
+        const outwardUnitX = outwardX / outwardLength;
+        const outwardUnitY = outwardY / outwardLength;
+        const outwardAngle = Math.atan2(outwardY, outwardX);
+        const outwardSpread = Math.PI * 1.08;
+        const angle = cluster
+            ? orbitCount === 1
+                ? outwardAngle
+                : outwardAngle - outwardSpread / 2 + outwardSpread * groupIndex / (orbitCount - 1)
+            : 0;
+        const absCos = Math.abs(Math.cos(angle));
+        const absSin = Math.abs(Math.sin(angle));
+        const edgeDistance = Math.min(
+            absCos > .001 ? labelHalfWidth / absCos : Infinity,
+            absSin > .001 ? labelHalfHeight / absSin : Infinity
+        );
+        const fixedOrbitGap = 14;
+        const idealRadius = edgeDistance + fixedOrbitGap;
+        const idealX = cluster ? cluster.x + Math.cos(angle) * idealRadius / cloudWidth * 100 : 0;
+        const idealY = cluster ? cluster.y + Math.sin(angle) * idealRadius / cloudHeight * 100 : 0;
+        const otherClusters = cluster
+            ? [...topicClusterCenters.values()].filter(item => item !== cluster)
+            : [];
+        const candidateSlots = cluster
+            ? cloudSlots.filter(slot => {
+                const slotCenterX = cloudWidth * slot[0] / 100;
+                const slotCenterY = cloudHeight * slot[1] / 100;
+                if (reservedLayout && (
+                    slotCenterX < reservedLayout.left || slotCenterX > reservedLayout.right ||
+                    slotCenterY < reservedLayout.top || slotCenterY > reservedLayout.bottom
+                )) return false;
+                const slotX = cloudWidth * (slot[0] - cluster.x) / 100;
+                const slotY = cloudHeight * (slot[1] - cluster.y) / 100;
+                const distanceFromMiniature = Math.hypot(
+                    Math.max(0, Math.abs(slotX) - labelHalfWidth),
+                    Math.max(0, Math.abs(slotY) - labelHalfHeight)
+                );
+                const outwardProgress = slotX * outwardUnitX + slotY * outwardUnitY;
+                return (reservedLayout || distanceFromMiniature <= 96) &&
+                    (reservedLayout || outwardProgress >= -12) &&
+                    (reservedLayout || otherClusters.every(other =>
+                    Math.hypot(slot[0] - cluster.x, slot[1] - cluster.y) + 2 <=
+                    Math.hypot(slot[0] - other.x, slot[1] - other.y)
+                ));
+            }).sort((a, b) =>
+                Math.hypot((a[0] - idealX) * cloudWidth / 100, (a[1] - idealY) * cloudHeight / 100) -
+                Math.hypot((b[0] - idealX) * cloudWidth / 100, (b[1] - idealY) * cloudHeight / 100)
+            )
+            : cloudSlots.filter(slot => [...topicClusterCenters.entries()].every(([groupId, item]) => {
+                const label = completedTopicLabels.get(groupId);
+                const halfWidth = label ? label.offsetWidth / 2 : 115 * plannerDensity;
+                const halfHeight = label ? label.offsetHeight / 2 : 35 * plannerDensity;
+                const slotX = cloudWidth * (slot[0] - item.x) / 100;
+                const slotY = cloudHeight * (slot[1] - item.y) / 100;
+                return Math.hypot(
+                    Math.max(0, Math.abs(slotX) - halfWidth),
+                    Math.max(0, Math.abs(slotY) - halfHeight)
+                ) > 116;
+            }));
 
+        const findOpenSlot = slots => {
+            const width = tag.offsetWidth;
+            const height = tag.offsetHeight;
+            const padding = Math.max(1.5, 7 * tagDensity);
+            for (const slot of slots) {
+                const angleInRadians = slot[2] * Math.PI / 180;
+                const rotatedWidth = Math.abs(width * Math.cos(angleInRadians)) + Math.abs(height * Math.sin(angleInRadians));
+                const rotatedHeight = Math.abs(width * Math.sin(angleInRadians)) + Math.abs(height * Math.cos(angleInRadians));
+                const centerX = Math.max(rotatedWidth / 2 + padding, Math.min(cloudWidth - rotatedWidth / 2 - padding, cloudWidth * slot[0] / 100));
+                const centerY = Math.max(rotatedHeight / 2 + padding, Math.min(cloudHeight - rotatedHeight / 2 - padding, cloudHeight * slot[1] / 100));
+                const bounds = {
+                    left: centerX - rotatedWidth / 2 - padding,
+                    right: centerX + rotatedWidth / 2 + padding,
+                    top: centerY - rotatedHeight / 2 - padding,
+                    bottom: centerY + rotatedHeight / 2 + padding
+                };
+                const intersects = other => !(
+                    bounds.right <= other.left || bounds.left >= other.right ||
+                    bounds.bottom <= other.top || bounds.top >= other.bottom
+                );
+                if (!placedBounds.some(intersects) && !protectedBounds.some(intersects)) {
+                    return { centerX, centerY, bounds, rotation: slot[2] };
+                }
+            }
+            return null;
+        };
+
+        const applyTagScale = factor => {
+            tag.style.setProperty('--tag-size', `${Math.max(3.5, baseSize * factor).toFixed(1)}px`);
+            tag.style.setProperty('--tag-pad-y', `${Math.max(.5, basePadY * factor).toFixed(1)}px`);
+            tag.style.setProperty('--tag-pad-x', `${Math.max(1, basePadX * factor).toFixed(1)}px`);
+            tag.style.setProperty('--tag-max-width', `${Math.max(34, baseMaxWidth * factor).toFixed(0)}px`);
+        };
+        let selectedFactor = null;
+        for (const factor of [.28, .38, .5, .66, .82, 1]) {
+            applyTagScale(factor);
+            const largerSelection = findOpenSlot(candidateSlots);
+            if (!largerSelection) {
+                if (selected) break;
+                continue;
+            }
+            selected = largerSelection;
+            selectedFactor = factor;
+        }
+        if (selectedFactor !== null) applyTagScale(selectedFactor);
         if (!selected) {
-            // Keep the tag at its last visible position if the slide is completely full.
+            tag.style.setProperty('--tag-size', '3px');
+            tag.style.setProperty('--tag-pad-y', '0px');
+            tag.style.setProperty('--tag-pad-x', '0px');
+            tag.style.setProperty('--tag-max-width', '28px');
+            selected = findOpenSlot(cloudSlots);
+        }
+        if (!selected) {
+            // Preserve the last visible position only when the entire slide is saturated.
             tag.style.removeProperty('opacity');
             return;
         }
@@ -256,6 +632,11 @@ function arrangeTopicCloud() {
 
 function rearrangeTopicCloud() {
     cloudSlots = createTopicSlots();
+    topicClusterCenters.clear();
+    completedTopicLabels.forEach((label, groupId) => {
+        moveClusterToSafeLabelPosition(groupId, label);
+        positionCompletedTopicLabel(groupId);
+    });
     for (let index = cloudSlots.length - 1; index > 0; index -= 1) {
         const swapIndex = Math.floor(Math.random() * (index + 1));
         [cloudSlots[index], cloudSlots[swapIndex]] = [cloudSlots[swapIndex], cloudSlots[index]];
@@ -286,9 +667,11 @@ async function copySlideScreenshot() {
     try {
         const imagePromise = (async () => {
             if (document.fonts?.ready) await document.fonts.ready;
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const captureScale = Math.max(4, (window.devicePixelRatio || 1) * 2);
             const canvas = await html2canvas(slide, {
                 backgroundColor: null,
-                scale: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+                scale: captureScale,
                 useCORS: true,
                 logging: false,
                 onclone: clonedDocument => {
@@ -362,9 +745,29 @@ function loadPlannerData() {
 
 function renderPlannerWorkspace() {
     plannerGroupsElement.innerHTML = '';
-    plannerEmpty.hidden = plannerData.length > 0;
+    const query = plannerSearch.value.trim().toLocaleLowerCase();
+    const visibleGroups = query
+        ? plannerData.filter(group => [
+            group.topic,
+            group.description,
+            ...group.terms.map(term => term.text)
+        ].some(value => (value || '').toLocaleLowerCase().includes(query)))
+        : plannerData;
+    plannerEmpty.hidden = visibleGroups.length > 0;
+    const emptyTitle = plannerEmpty.querySelector('strong');
+    const emptyDescription = plannerEmpty.querySelector('span');
+    if (query && plannerData.length) {
+        emptyTitle.textContent = 'No matching topics';
+        emptyDescription.textContent = 'Try another topic, description, or cloud term.';
+    } else {
+        emptyTitle.textContent = 'No topics prepared yet';
+        emptyDescription.textContent = 'Upload a CSV or add your first topic manually.';
+    }
+    plannerSearchStatus.textContent = query
+        ? `${visibleGroups.length} of ${plannerData.length} topics`
+        : `${plannerData.length} ${plannerData.length === 1 ? 'topic' : 'topics'}`;
 
-    plannerData.forEach(group => {
+    visibleGroups.forEach(group => {
         const card = document.createElement('section');
         card.className = 'planner-group';
         card.dataset.groupId = group.id;
@@ -470,6 +873,8 @@ function renderPlannerWorkspace() {
     updatePlannerSelection();
 }
 
+plannerSearch.addEventListener('input', renderPlannerWorkspace);
+
 function updatePlannerSelection() {
     const count = plannerData.reduce((total, group) => total + group.terms.filter(term => term.selected && term.text.trim()).length, 0);
     selectedTermCount.textContent = count;
@@ -478,6 +883,7 @@ function updatePlannerSelection() {
 }
 
 addPlannerTopicButton.addEventListener('click', () => {
+    plannerSearch.value = '';
     plannerData.push({
         id: createPlannerId(),
         topic: 'New topic',
@@ -492,9 +898,10 @@ addPlannerTopicButton.addEventListener('click', () => {
 openPresenterButton.addEventListener('click', () => {
     plannedTopics = plannerData.flatMap(group => group.terms
         .filter(term => term.selected && term.text.trim())
-        .map(term => ({ term: term.text.trim(), context: group.topic.trim(), description: (group.description || '').trim() })));
+        .map(term => ({ term: term.text.trim(), context: group.topic.trim(), description: (group.description || '').trim(), groupId: group.id })));
     plannedTopicIndex = 0;
     if (!plannedTopics.length) return;
+    precalculateTopicGrid(plannedTopics);
     renderPlannedTopic();
     setPlannerOpen(false);
     slidePresenter.hidden = false;
@@ -506,7 +913,7 @@ slidePresenterSkip.addEventListener('click', advancePlannedTopic);
 slidePresenterAdd.addEventListener('click', () => {
     const value = slidePresenterInput.value.trim();
     if (!value) return;
-    createTopicTag(value, slide.clientWidth * .5, slide.clientHeight - 90);
+    createTopicTag(value, slide.clientWidth * .5, slide.clientHeight - 90, plannedTopics[plannedTopicIndex]);
     advancePlannedTopic();
 });
 slidePresenterInput.addEventListener('keydown', event => {
@@ -534,13 +941,18 @@ prepareTopicsButton.addEventListener('click', () => {
 addTopicButton.addEventListener('click', () => {
     const suggestion = plannedTopics[plannedTopicIndex];
     if (!suggestion) return;
-    createTopicTag(suggestion.term, slide.clientWidth - 45, slide.clientHeight * .5);
+    createTopicTag(suggestion.term, slide.clientWidth - 45, slide.clientHeight * .5, suggestion);
     advancePlannedTopic();
 });
 
 skipTopicButton.addEventListener('click', advancePlannedTopic);
 
 function advancePlannedTopic() {
+    const completedTopic = plannedTopics[plannedTopicIndex];
+    const nextTopic = plannedTopics[plannedTopicIndex + 1];
+    if (completedTopic?.groupId && completedTopic.groupId !== nextTopic?.groupId) {
+        finalizeTopicCluster(completedTopic);
+    }
     plannedTopicIndex += 1;
     if (plannedTopicIndex >= plannedTopics.length) {
         plannerReview.hidden = true;
@@ -548,6 +960,8 @@ function advancePlannedTopic() {
         plannedTopicIndex = 0;
         slidePresenter.hidden = true;
         slide.classList.remove('presenter-active');
+        heroTitle.textContent = 'Turn your ideas into moments worth sharing.';
+        heroSubtitle.textContent = 'Capture your screen, tell your story, and share your best work—right from your browser.';
         requestAnimationFrame(arrangeTopicCloud);
         return;
     }
@@ -562,8 +976,10 @@ function renderPlannedTopic() {
     slidePresenterInput.value = suggestion.term;
     slidePresenterTopic.textContent = suggestion.context || 'Next cloud term';
     slidePresenterProgress.textContent = `${plannedTopicIndex + 1}/${plannedTopics.length}`;
-    if (suggestion.context) heroTitle.textContent = suggestion.context;
-    if (suggestion.description) heroSubtitle.textContent = suggestion.description;
+    if (suggestion.context) {
+        heroTitle.textContent = suggestion.context;
+        heroSubtitle.textContent = suggestion.description || '';
+    }
     slidePresenter.hidden = false;
     requestAnimationFrame(arrangeTopicCloud);
 }
@@ -593,6 +1009,12 @@ clearCloudButton.addEventListener('click', () => {
     setTimeout(() => {
         topicTags.forEach(tag => tag.remove());
         topicTags = [];
+        topicClusterCenters.clear();
+        topicClusterSymbols.clear();
+        topicClusterLayouts.clear();
+        completedTopicLabels.forEach(label => label.remove());
+        completedTopicLabels.clear();
+        topicCloud.style.removeProperty('--cloud-density');
         topicCloud.classList.remove('clearing');
         screenshotButton.hidden = true;
         clearCloudButton.hidden = true;
@@ -999,7 +1421,7 @@ async function openFacecamPictureInPicture() {
         suggestionPanel.querySelector('.pip-add').addEventListener('click', () => {
             const value = suggestionPanel.querySelector('input').value.trim();
             if (!value) return;
-            createTopicTag(value, slide.clientWidth - 45, slide.clientHeight * .5);
+            createTopicTag(value, slide.clientWidth - 45, slide.clientHeight * .5, plannedTopics[plannedTopicIndex]);
             advancePlannedTopic();
         });
         suggestionPanel.querySelector('input').addEventListener('keydown', event => {
@@ -1163,39 +1585,34 @@ async function getOutputFileHandle() {
 async function startRecordingWithFileSystemAccess(fileHandle) {
     try {
         startTime = Date.now();
-        writableStream = await fileHandle.createWritable();
-        const activeWriter = writableStream;
-        let writeChain = Promise.resolve();
-        let writeError = null;
+        recordedChunks = [];
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
 
         mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                writeChain = writeChain
-                    .then(() => activeWriter.write(event.data))
-                    .catch(error => {
-                        writeError = error;
-                        console.error('Recording sync failed:', error);
-                    });
-            }
+            if (event.data.size > 0) recordedChunks.push(event.data);
         };
 
         mediaRecorder.onstop = async () => {
+            const recordedBlob = new Blob(recordedChunks, { type: 'video/webm' });
             try {
-                await writeChain;
-                if (writeError) throw writeError;
+                const seekableBlob = await makeSeekable(recordedBlob);
+                writableStream = await fileHandle.createWritable();
+                const activeWriter = writableStream;
+                await activeWriter.write(seekableBlob);
                 await activeWriter.close();
+                if (writableStream === activeWriter) writableStream = null;
                 saveRecordingToList(fileHandle.name);
             } catch (error) {
-                console.error('Could not finish the synced recording:', error);
-                try { await activeWriter.abort(); } catch (_) { /* Stream may already be closed. */ }
+                console.error('Could not finalize the recording:', error);
+                try { await writableStream?.abort(); } catch (_) { /* Stream may already be closed. */ }
                 alert('The recording could not be fully saved. Check available disk space and try again.');
             } finally {
-                if (writableStream === activeWriter) writableStream = null;
+                writableStream = null;
+                recordedChunks = [];
             }
         };
 
-        mediaRecorder.start(5000);
+        mediaRecorder.start(1000);
         isRecording = true;
         toggleRecordingBtn.querySelector('.record-label').textContent = 'Stop recording';
         toggleRecordingBtn.classList.add('recording');

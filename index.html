@@ -121,6 +121,13 @@
                         <div><h3>Presentation topics</h3><p>Select the terms you want to review in the private presenter.</p></div>
                         <button id="addPlannerTopicButton" type="button">+ Add topic</button>
                     </div>
+                    <div class="planner-search-row">
+                        <label class="planner-search-field" for="plannerSearch">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+                            <input id="plannerSearch" type="search" autocomplete="off" placeholder="Search topics, descriptions, or cloud terms">
+                        </label>
+                        <span id="plannerSearchStatus" role="status" aria-live="polite"></span>
+                    </div>
                     <div class="planner-groups" id="plannerGroups"></div>
                     <div class="planner-empty" id="plannerEmpty">
                         <strong>No topics prepared yet</strong>
