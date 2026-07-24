@@ -45,7 +45,6 @@ const closePlannerButton = document.getElementById('closePlannerButton');
 const plannerContext = document.getElementById('plannerContext');
 const plannerCsvInput = document.getElementById('plannerCsvInput');
 const uploadPlannerCsvButton = document.getElementById('uploadPlannerCsvButton');
-const downloadSampleCsvButton = document.getElementById('downloadSampleCsvButton');
 const downloadLatestCsvButton = document.getElementById('downloadLatestCsvButton');
 const plannerGroupsElement = document.getElementById('plannerGroups');
 const plannerEmpty = document.getElementById('plannerEmpty');
@@ -1268,11 +1267,6 @@ plannerCsvInput.addEventListener('change', async () => {
     } finally {
         plannerCsvInput.value = '';
     }
-});
-
-downloadSampleCsvButton.addEventListener('click', () => {
-    const sample = 'topic,description,cloud terms\nProduct Strategy,"Define where the product is going and how the team will get there.","Vision, Roadmap, Market fit"\nUser Research,"Turn customer conversations into clear product insight.","Interviews, Insights, Personas"\nGrowth,"Explore the moments that help more people discover and keep using the product.","Awareness, Activation, Retention"\n';
-    downloadPlannerCsv(sample, 'cloud-planner-sample.csv');
 });
 
 downloadLatestCsvButton.addEventListener('click', () => {

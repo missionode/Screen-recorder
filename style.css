@@ -386,8 +386,8 @@ h1 {
 .planner-actions button { padding: 9px; border: 1px solid #d9e5ef; border-radius: 9px; color: #718398; background: white; font-size: 10px; font-weight: 700; cursor: pointer; }
 .planner-actions #addTopicButton { border-color: #5b91c5; color: white; background: #5b91c5; }
 .planner-footer { display: flex; align-items: center; gap: 8px; padding: 14px 28px; border-top: 1px solid #e2eaf2; background: rgba(255,255,255,.78); }
-.planner-footer button { padding: 10px; border: 1px solid #d5e2ed; border-radius: 9px; color: #607a92; background: white; font-size: 10px; font-weight: 700; cursor: pointer; }
-.planner-footer button:hover { border-color: #8eb9df; color: var(--blue); }
+.planner-footer button, .planner-footer a { padding: 10px; border: 1px solid #d5e2ed; border-radius: 9px; color: #607a92; background: white; font-size: 10px; font-weight: 700; line-height: normal; text-decoration: none; cursor: pointer; }
+.planner-footer button:hover, .planner-footer a:hover { border-color: #8eb9df; color: var(--blue); }
 .planner-footer button:disabled { border-color: #e1e8ee; color: #a5b0bb; background: #edf2f6; cursor: not-allowed; }
 .planner-footer-note { flex: 1; color: #9ba8b5; font-size: 8px; }
 .planner-footer .open-presenter-button { min-width: 170px; border-color: #4f8bc4; color: white; background: #4f8bc4; }
