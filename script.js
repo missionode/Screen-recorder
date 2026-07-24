@@ -110,14 +110,151 @@ function createTopicSlots() {
     return slots;
 }
 
+function rectanglesIntersect(a, b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x &&
+        a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function pruneFreeRectangles(rectangles) {
+    return rectangles.filter((rect, index) => rect.width > 1 && rect.height > 1 &&
+        !rectangles.some((other, otherIndex) => otherIndex !== index &&
+            rect.x >= other.x && rect.y >= other.y &&
+            rect.x + rect.width <= other.x + other.width &&
+            rect.y + rect.height <= other.y + other.height
+        ));
+}
+
+function splitFreeRectangles(rectangles, placed) {
+    const next = [];
+    rectangles.forEach(free => {
+        if (!rectanglesIntersect(free, placed)) {
+            next.push(free);
+            return;
+        }
+        if (placed.x > free.x) {
+            next.push({ x: free.x, y: free.y, width: placed.x - free.x, height: free.height });
+        }
+        if (placed.x + placed.width < free.x + free.width) {
+            next.push({
+                x: placed.x + placed.width,
+                y: free.y,
+                width: free.x + free.width - placed.x - placed.width,
+                height: free.height
+            });
+        }
+        if (placed.y > free.y) {
+            next.push({ x: free.x, y: free.y, width: free.width, height: placed.y - free.y });
+        }
+        if (placed.y + placed.height < free.y + free.height) {
+            next.push({
+                x: free.x,
+                y: placed.y + placed.height,
+                width: free.width,
+                height: free.y + free.height - placed.y - placed.height
+            });
+        }
+    });
+    return pruneFreeRectangles(next);
+}
+
+function estimateTopicCluster(group, sideWidth) {
+    const longestText = Math.max(
+        group.topic.length,
+        group.description.length * .55,
+        ...group.terms.map(term => term.term.length)
+    );
+    const preferredWidth = Math.max(150, Math.min(sideWidth - 12, 150 + longestText * 2.1 + Math.sqrt(group.count) * 18));
+    const tagArea = group.terms.reduce((area, term) => {
+        const estimatedWidth = Math.max(42, Math.min(180, 28 + term.term.length * 5.7));
+        const lines = Math.max(1, term.term.split('\n').length);
+        return area + estimatedWidth * (18 + (lines - 1) * 10) * 1.32;
+    }, 0);
+    const headerHeight = 62 + Math.min(52, Math.ceil(group.description.length / 38) * 13);
+    const preferredHeight = Math.max(105, headerHeight + tagArea / Math.max(90, preferredWidth * .72));
+    return { width: preferredWidth, height: preferredHeight };
+}
+
+function tryPackTopicClusters(clusterSpecs, bins, scale) {
+    const binStates = bins.map(bin => ({ ...bin, free: [{ ...bin }] }));
+    const placements = new Map();
+    const sorted = [...clusterSpecs].sort((a, b) =>
+        b.base.width * b.base.height - a.base.width * a.base.height
+    );
+
+    for (const spec of sorted) {
+        const width = Math.max(92, spec.base.width * scale);
+        const height = Math.max(76, spec.base.height * scale);
+        let best = null;
+
+        binStates.forEach((bin, binIndex) => {
+            bin.free.forEach(free => {
+                if (width > free.width || height > free.height) return;
+                const shortSide = Math.min(free.width - width, free.height - height);
+                const areaWaste = free.width * free.height - width * height;
+                const score = shortSide * 100000 + areaWaste;
+                if (!best || score < best.score) {
+                    best = { binIndex, x: free.x, y: free.y, width, height, score };
+                }
+            });
+        });
+
+        if (!best) return null;
+        const placed = { x: best.x, y: best.y, width: best.width, height: best.height };
+        binStates[best.binIndex].free = splitFreeRectangles(binStates[best.binIndex].free, placed);
+        placements.set(spec.groupId, { ...placed, scale });
+    }
+    return placements;
+}
+
+function hashTopicId(value) {
+    let hash = 2166136261;
+    for (const character of String(value)) {
+        hash ^= character.charCodeAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+}
+
+function createDeterministicClusterSlots(layout, groupId, canvasWidth, canvasHeight) {
+    const count = 720;
+    const seed = hashTopicId(groupId);
+    const phase = (seed % 6283) / 1000;
+    const halfWidth = Math.max(1, (layout.right - layout.left) / 2);
+    const halfHeight = Math.max(1, (layout.bottom - layout.top) / 2);
+    const centerX = (layout.left + layout.right) / 2;
+    const centerY = (layout.top + layout.bottom) / 2;
+    const slots = [];
+
+    for (let index = 0; index < count; index += 1) {
+        const progress = count === 1 ? 0 : index / (count - 1);
+        const radius = .16 + Math.sqrt(progress) * .81;
+        const angle = phase + index * 2.399963229728653;
+        const x = centerX + Math.cos(angle) * halfWidth * radius;
+        const y = centerY + Math.sin(angle) * halfHeight * radius;
+        const rotationSeed = ((seed + index * 1103515245) >>> 0) % 900;
+        const rotation = (rotationSeed / 900 - .5) * 8;
+        slots.push([x / canvasWidth * 100, y / canvasHeight * 100, rotation]);
+    }
+    return slots;
+}
+
 function precalculateTopicGrid(items) {
     topicClusterLayouts.clear();
     topicClusterCenters.clear();
     const groups = new Map();
     items.forEach(item => {
         if (!item.groupId) return;
-        if (!groups.has(item.groupId)) groups.set(item.groupId, { count: 0 });
-        groups.get(item.groupId).count += 1;
+        if (!groups.has(item.groupId)) {
+            groups.set(item.groupId, {
+                count: 0,
+                topic: item.context || '',
+                description: item.description || '',
+                terms: []
+            });
+        }
+        const group = groups.get(item.groupId);
+        group.count += 1;
+        group.terms.push(item);
     });
     const groupIndexes = new Map();
     items.forEach(item => {
@@ -134,30 +271,65 @@ function precalculateTopicGrid(items) {
     const corridorWidth = Math.min(CENTER_CLOUD_SAFE_WIDTH, Math.max(0, width - 240));
     const sideWidth = (width - corridorWidth) / 2;
     const edgeInset = Math.max(52, Math.min(78, height * .11));
-    const usableTop = edgeInset;
-    const usableBottom = height - edgeInset;
-    const usableHeight = Math.max(1, usableBottom - usableTop);
-    const leftRows = Math.ceil(entries.length / 2);
-    const rightRows = Math.floor(entries.length / 2);
+    const binMargin = Math.max(8, Math.min(16, sideWidth * .045));
+    const binHeight = Math.max(1, height - edgeInset * 2);
+    const bins = [
+        { x: binMargin, y: edgeInset, width: Math.max(1, sideWidth - binMargin * 2), height: binHeight },
+        { x: width - sideWidth + binMargin, y: edgeInset, width: Math.max(1, sideWidth - binMargin * 2), height: binHeight }
+    ];
+    const specs = entries.map(([groupId, group]) => ({
+        groupId,
+        group,
+        base: estimateTopicCluster(group, bins[0].width)
+    }));
 
-    entries.forEach(([groupId, group], index) => {
-        const isLeft = index % 2 === 0;
-        const row = Math.floor(index / 2);
-        const rows = isLeft ? leftRows : Math.max(1, rightRows);
-        const cellTop = usableTop + usableHeight * row / rows;
-        const cellBottom = usableTop + usableHeight * (row + 1) / rows;
-        const margin = Math.max(8, Math.min(18, sideWidth * .08, (cellBottom - cellTop) * .08));
-        const left = isLeft ? margin : width - sideWidth + margin;
-        const right = isLeft ? sideWidth - margin : width - margin;
-        const top = cellTop + margin;
-        const bottom = cellBottom - margin;
-        const areaPerTag = Math.max(1, (right - left) * (bottom - top) / Math.max(1, group.count));
-        const scale = Math.max(.34, Math.min(1, Math.sqrt(areaPerTag / 3200)));
+    let low = .28;
+    let high = 1;
+    let bestPlacements = tryPackTopicClusters(specs, bins, low);
+    for (let iteration = 0; iteration < 12; iteration += 1) {
+        const scale = (low + high) / 2;
+        const placements = tryPackTopicClusters(specs, bins, scale);
+        if (placements) {
+            bestPlacements = placements;
+            low = scale;
+        } else {
+            high = scale;
+        }
+    }
+
+    if (!bestPlacements) {
+        // Last-resort deterministic rows preserve every topic when the minimum scale cannot pack.
+        const rowsPerSide = Math.ceil(entries.length / 2);
+        entries.forEach(([groupId], index) => {
+            const isLeft = index % 2 === 0;
+            const row = Math.floor(index / 2);
+            const bin = bins[isLeft ? 0 : 1];
+            bestPlacements ||= new Map();
+            bestPlacements.set(groupId, {
+                x: bin.x,
+                y: bin.y + bin.height * row / rowsPerSide,
+                width: bin.width,
+                height: bin.height / rowsPerSide,
+                scale: .28
+            });
+        });
+    }
+
+    bestPlacements.forEach((placement, groupId) => {
+        const inset = Math.max(4, 8 * placement.scale);
+        const left = placement.x + inset;
+        const right = placement.x + placement.width - inset;
+        const top = placement.y + inset;
+        const bottom = placement.y + placement.height - inset;
         topicClusterLayouts.set(groupId, {
-            left, right, top, bottom, scale,
+            left, right, top, bottom,
+            scale: placement.scale,
             x: (left + right) / 2 / width * 100,
             y: (top + bottom) / 2 / height * 100
         });
+    });
+    topicClusterLayouts.forEach((layout, groupId) => {
+        layout.slots = createDeterministicClusterSlots(layout, groupId, width, height);
     });
 }
 
@@ -192,7 +364,7 @@ function getTopicCluster(groupId) {
         x: selected[0],
         y: selected[1],
         color: TOPIC_COLORS[topicClusterCenters.size % TOPIC_COLORS.length],
-        phase: Math.random() * Math.PI * 2,
+        phase: hashTopicId(groupId) % 6283 / 1000,
         symbol,
         symbolColor: TOPIC_SYMBOL_COLORS[TOPIC_SYMBOLS.indexOf(symbol) % TOPIC_SYMBOL_COLORS.length]
     };
@@ -204,11 +376,16 @@ function positionCompletedTopicLabel(groupId, animate = false) {
     const label = completedTopicLabels.get(groupId);
     const cluster = getTopicCluster(groupId);
     if (!label || !cluster) return;
+    const layout = topicClusterLayouts.get(groupId);
     if (!animate) label.classList.add('clustered');
     label.style.left = `${cluster.x}%`;
     label.style.top = `${cluster.y}%`;
     label.style.setProperty('--cluster-color', cluster.color);
     label.style.setProperty('--topic-symbol-color', cluster.symbolColor);
+    if (layout) {
+        label.style.width = `${Math.max(80, layout.right - layout.left - 8)}px`;
+        label.style.setProperty('--cloud-density', String(layout.scale));
+    }
     const marker = label.querySelector('.completed-topic-symbol');
     if (marker) marker.textContent = cluster.symbol;
 }
@@ -534,7 +711,7 @@ function arrangeTopicCloud() {
             ? [...topicClusterCenters.values()].filter(item => item !== cluster)
             : [];
         const candidateSlots = cluster
-            ? cloudSlots.filter(slot => {
+            ? (reservedLayout?.slots || cloudSlots).filter(slot => {
                 const slotCenterX = cloudWidth * slot[0] / 100;
                 const slotCenterY = cloudHeight * slot[1] / 100;
                 if (reservedLayout && (
@@ -620,7 +797,7 @@ function arrangeTopicCloud() {
             tag.style.setProperty('--tag-pad-y', '0px');
             tag.style.setProperty('--tag-pad-x', '0px');
             tag.style.setProperty('--tag-max-width', '28px');
-            selected = findOpenSlot(cloudSlots);
+            selected = findOpenSlot(reservedLayout ? candidateSlots : cloudSlots);
         }
         if (!selected) {
             // Preserve the last visible position only when the entire slide is saturated.
