@@ -51,6 +51,7 @@ const plannerEmpty = document.getElementById('plannerEmpty');
 const addPlannerTopicButton = document.getElementById('addPlannerTopicButton');
 const plannerSearch = document.getElementById('plannerSearch');
 const plannerSearchStatus = document.getElementById('plannerSearchStatus');
+const plannerBody = document.querySelector('.planner-body');
 const openPresenterButton = document.getElementById('openPresenterButton');
 const selectedTermCount = document.getElementById('selectedTermCount');
 const slidePresenter = document.getElementById('slidePresenter');
@@ -62,6 +63,7 @@ const slidePresenterAdd = document.getElementById('slidePresenterAdd');
 const clearCloudButton = document.getElementById('clearCloudButton');
 
 let isRecording = false;
+let isStopping = false;
 let mediaRecorder;
 let stream;
 let recordedChunks = [];
@@ -1049,9 +1051,18 @@ function renderPlannerWorkspace() {
             topicCheckbox.indeterminate = selectedCount > 0 && selectedCount < group.terms.length;
         };
         topicCheckbox.addEventListener('change', () => {
-            group.terms.forEach(term => { term.selected = topicCheckbox.checked; });
-            savePlannerData();
-            renderPlannerWorkspace();
+            setPlannerBusy(true);
+            requestAnimationFrame(() => {
+                group.terms.forEach(term => { term.selected = topicCheckbox.checked; });
+                const renderedCard = plannerGroupsElement.querySelector(`[data-group-id="${group.id}"]`);
+                renderedCard?.querySelectorAll('.planner-term input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.checked = topicCheckbox.checked;
+                });
+                savePlannerData();
+                updateTopicSelectionState();
+                updatePlannerSelection();
+                setPlannerBusy(false);
+            });
         });
         const title = document.createElement('input');
         title.className = 'planner-group-title';
@@ -1144,6 +1155,11 @@ function renderPlannerWorkspace() {
         plannerGroupsElement.appendChild(card);
     });
     updatePlannerSelection();
+}
+
+function setPlannerBusy(isBusy) {
+    plannerBody?.classList.toggle('is-busy', isBusy);
+    plannerBody?.setAttribute('aria-busy', String(isBusy));
 }
 
 plannerSearch.addEventListener('input', renderPlannerWorkspace);
@@ -1577,7 +1593,7 @@ logoInput.addEventListener('change', () => {
     reader.readAsDataURL(file);
 });
 
-removeLogoButton.addEventListener('click', () => {
+function removeCurrentLogo() {
     const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
     delete saved.logo;
     localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
@@ -1587,7 +1603,9 @@ removeLogoButton.addEventListener('click', () => {
     removeLogoButton.hidden = true;
     logoInput.value = '';
     renderLogoHistory();
-});
+}
+
+removeLogoButton.addEventListener('click', removeCurrentLogo);
 
 function showLogo(source) {
     brandLogo.src = source;
@@ -1604,16 +1622,32 @@ function renderLogoHistory() {
     logoHistoryGrid.innerHTML = '';
 
     history.forEach((source, index) => {
+        const card = document.createElement('div');
+        card.className = `saved-logo${saved.logo === source ? ' active' : ''}`;
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = `saved-logo${saved.logo === source ? ' active' : ''}`;
+        button.className = 'saved-logo-select';
         button.setAttribute('aria-label', `Use recent logo ${index + 1}`);
         const image = document.createElement('img');
         image.src = source;
         image.alt = '';
         button.appendChild(image);
         button.addEventListener('click', () => selectSavedLogo(source));
-        logoHistoryGrid.appendChild(button);
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'saved-logo-remove';
+        remove.setAttribute('aria-label', `Remove recent logo ${index + 1}`);
+        remove.title = 'Remove this logo';
+        remove.textContent = '×';
+        remove.addEventListener('click', event => {
+            event.stopPropagation();
+            const next = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
+            next.logoHistory = (next.logoHistory || []).filter(logo => logo !== source);
+            localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(next));
+            renderLogoHistory();
+        });
+        card.append(button, remove);
+        logoHistoryGrid.appendChild(card);
     });
 }
 
@@ -1627,7 +1661,7 @@ function selectSavedLogo(source) {
 
 clearLogoHistoryButton.addEventListener('click', () => {
     const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
-    saved.logoHistory = saved.logo ? [saved.logo] : [];
+    saved.logoHistory = [];
     localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
     renderLogoHistory();
 });
@@ -1995,6 +2029,7 @@ async function startRecordingWithFileSystemAccess(fileHandle) {
 
         mediaRecorder.start(1000);
         isRecording = true;
+        isStopping = false;
         toggleRecordingBtn.querySelector('.record-label').textContent = 'Stop recording';
         toggleRecordingBtn.classList.add('recording');
 
@@ -2047,6 +2082,7 @@ function startRecordingWithFallback() {
 
     mediaRecorder.start(1000);
     isRecording = true;
+    isStopping = false;
     toggleRecordingBtn.querySelector('.record-label').textContent = 'Stop recording';
     toggleRecordingBtn.classList.add('recording');
 }
@@ -2082,6 +2118,10 @@ async function makeSeekable(blob) {
 }
 
 function stopRecording() {
+    if (!isRecording || isStopping) return;
+    isStopping = true;
+    isRecording = false;
+    toggleRecordingBtn.querySelector('.record-label').textContent = 'Finishing recording…';
     popoutFacecamButton.hidden = true;
     if ('mediaSession' in navigator) {
         try {
@@ -2125,11 +2165,11 @@ function stopRecording() {
         indicator.remove();
     }
 
-    isRecording = false;
     toggleRecordingBtn.querySelector('.record-label').textContent = 'Record screen';
     toggleRecordingBtn.classList.remove('recording');
     stream = null;
     mediaRecorder = null;
+    isStopping = false;
 }
 
 function makeDraggable(element) {
