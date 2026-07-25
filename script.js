@@ -79,6 +79,9 @@ let topicClusterCenters = new Map();
 let completedTopicLabels = new Map();
 let topicClusterLayouts = new Map();
 let addedTagReadoutTimer = null;
+let presentationPlan = [];
+let presentationCover = null;
+let structuredSummary = null;
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
@@ -837,17 +840,15 @@ async function copySlideScreenshot() {
         showScreenshotStatus('Screenshot tool unavailable');
         return;
     }
-    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
-        showScreenshotStatus('Image clipboard unavailable');
-        return;
-    }
+    const canCopyToClipboard = Boolean(navigator.clipboard?.write && typeof ClipboardItem !== 'undefined');
     if (activeTopicEntry?.input.value.trim()) commitTopicEntry();
     else cancelTopicEntry();
 
     screenshotButton.disabled = true;
     slide.classList.add('capture-mode');
+    let imagePromise;
     try {
-        const imagePromise = (async () => {
+        imagePromise = (async () => {
             if (document.fonts?.ready) await document.fonts.ready;
             await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
             const captureScale = Math.max(4, (window.devicePixelRatio || 1) * 2);
@@ -857,6 +858,12 @@ async function copySlideScreenshot() {
                 useCORS: true,
                 logging: false,
                 onclone: clonedDocument => {
+                    const clonedSummary = clonedDocument.querySelector('.structured-summary');
+                    if (clonedSummary) {
+                        clonedSummary.style.backdropFilter = 'none';
+                        clonedSummary.style.webkitBackdropFilter = 'none';
+                        clonedSummary.style.animation = 'none';
+                    }
                     const typographyProperties = [
                         'color', 'fontFamily', 'fontSize', 'fontStyle', 'fontWeight',
                         'letterSpacing', 'lineHeight', 'textAlign', 'textTransform',
@@ -882,16 +889,37 @@ async function copySlideScreenshot() {
             });
         })();
 
+        const screenshotBlob = await imagePromise;
         // Start the clipboard operation directly from the click so browser permission remains valid.
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': imagePromise })]);
+        if (!canCopyToClipboard) throw new Error('Image clipboard unavailable');
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': screenshotBlob })]);
         showScreenshotStatus('Copied to clipboard');
     } catch (error) {
         console.error('Could not copy the slide screenshot:', error);
-        showScreenshotStatus('Clipboard access was blocked');
+        try {
+            const blob = imagePromise ? await imagePromise : null;
+            if (!blob) throw error;
+            downloadScreenshotBlob(blob);
+            showScreenshotStatus('PNG downloaded');
+        } catch (fallbackError) {
+            console.error('Could not download the slide screenshot:', fallbackError);
+            showScreenshotStatus('Could not create screenshot');
+        }
     } finally {
         slide.classList.remove('capture-mode');
         screenshotButton.disabled = false;
     }
+}
+
+function downloadScreenshotBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `screen-recorder-${new Date().toISOString().slice(0, 10)}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function showScreenshotStatus(message) {
@@ -953,6 +981,32 @@ function renderPlannerWorkspace() {
         const card = document.createElement('section');
         card.className = 'planner-group';
         card.dataset.groupId = group.id;
+        card.draggable = true;
+        card.addEventListener('dragstart', event => {
+            card.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', group.id);
+        });
+        card.addEventListener('dragend', () => card.classList.remove('dragging'));
+        card.addEventListener('dragover', event => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            card.classList.add('drag-target');
+        });
+        card.addEventListener('dragleave', () => card.classList.remove('drag-target'));
+        card.addEventListener('drop', event => {
+            event.preventDefault();
+            card.classList.remove('drag-target');
+            const draggedId = event.dataTransfer.getData('text/plain');
+            if (!draggedId || draggedId === group.id) return;
+            const fromIndex = plannerData.findIndex(item => item.id === draggedId);
+            const toIndex = plannerData.findIndex(item => item.id === group.id);
+            if (fromIndex < 0 || toIndex < 0) return;
+            const [moved] = plannerData.splice(fromIndex, 1);
+            plannerData.splice(toIndex, 0, moved);
+            savePlannerData();
+            renderPlannerWorkspace();
+        });
         const header = document.createElement('div');
         header.className = 'planner-group-header';
         const topicCheckbox = document.createElement('input');
@@ -1090,6 +1144,9 @@ openPresenterButton.addEventListener('click', () => {
         .map(term => ({ term: term.text.trim(), context: group.topic.trim(), description: (group.description || '').trim(), groupId: group.id })));
     plannedTopicIndex = 0;
     if (!plannedTopics.length) return;
+    presentationPlan = plannedTopics.map(item => ({ ...item }));
+    presentationCover = { title: heroTitle.textContent, subtitle: heroSubtitle.textContent };
+    removeStructuredSummary();
     precalculateTopicGrid(plannedTopics);
     renderPlannedTopic();
     setPlannerOpen(false);
@@ -1153,13 +1210,76 @@ function advancePlannedTopic() {
         addedTagReadoutTimer = setTimeout(() => {
             addedTagReadout.hidden = true;
             addedTagReadout.textContent = '';
+            presentStructuredSummary();
         }, 25000);
-        heroTitle.textContent = 'Turn your ideas into moments worth sharing.';
-        heroSubtitle.textContent = 'Capture your screen, tell your story, and share your best work—right from your browser.';
+        heroTitle.textContent = presentationCover?.title || 'Turn your ideas into moments worth sharing.';
+        heroSubtitle.textContent = presentationCover?.subtitle || 'Capture your screen, tell your story, and share your best work—right from your browser.';
         requestAnimationFrame(arrangeTopicCloud);
         return;
     }
     renderPlannedTopic();
+}
+
+function removeStructuredSummary() {
+    if (structuredSummary) structuredSummary.remove();
+    structuredSummary = null;
+    slide.classList.remove('structured-summary-mode');
+}
+
+function clearRenderedCloud() {
+    cancelTopicEntry();
+    topicTags.forEach(tag => tag.remove());
+    topicTags = [];
+    completedTopicLabels.forEach(label => label.remove());
+    completedTopicLabels.clear();
+    topicClusterCenters.clear();
+    topicClusterLayouts.clear();
+    topicCloud.style.removeProperty('--cloud-density');
+    screenshotButton.hidden = true;
+    clearCloudButton.hidden = true;
+}
+
+function presentStructuredSummary() {
+    if (!presentationPlan.length) return;
+    clearRenderedCloud();
+    removeStructuredSummary();
+    const groups = new Map();
+    presentationPlan.forEach(item => {
+        if (!item.groupId) return;
+        if (!groups.has(item.groupId)) groups.set(item.groupId, { topic: item.context, description: item.description, terms: [] });
+        groups.get(item.groupId).terms.push(item.term);
+    });
+    if (!groups.size) return;
+    structuredSummary = document.createElement('section');
+    structuredSummary.className = 'structured-summary';
+    structuredSummary.setAttribute('aria-label', 'Structured cloud summary');
+    const grid = document.createElement('div');
+    grid.className = 'structured-summary-grid';
+    groups.forEach((group, groupId) => {
+        const card = document.createElement('article');
+        card.className = 'structured-summary-card';
+        const cluster = getTopicCluster(groupId);
+        card.style.setProperty('--summary-color', cluster?.color || TOPIC_COLORS[groups.size % TOPIC_COLORS.length]);
+        const title = document.createElement('h3');
+        title.textContent = `${cluster?.symbol || '•'}  ${group.topic || 'Topic'}`;
+        const description = document.createElement('p');
+        description.textContent = group.description || '';
+        description.hidden = !description.textContent;
+        const tags = document.createElement('div');
+        tags.className = 'structured-summary-tags';
+        group.terms.forEach(term => {
+            const tag = document.createElement('span');
+            tag.textContent = term;
+            tags.appendChild(tag);
+        });
+        card.append(title, description, tags);
+        grid.appendChild(card);
+    });
+    structuredSummary.appendChild(grid);
+    slide.appendChild(structuredSummary);
+    slide.classList.add('structured-summary-mode');
+    screenshotButton.hidden = false;
+    clearCloudButton.hidden = false;
 }
 
 function renderPlannedTopic() {
@@ -1181,8 +1301,6 @@ function renderPlannedTopic() {
 function setPlannerOpen(isOpen) {
     if (isOpen) {
         setSettingsOpen(false);
-        plannerData.forEach(group => group.terms.forEach(term => { term.selected = false; }));
-        savePlannerData();
         renderPlannerWorkspace();
     }
     cloudPlannerPanel.classList.toggle('open', isOpen);
@@ -1199,6 +1317,8 @@ uploadPlannerCsvButton.addEventListener('click', () => plannerCsvInput.click());
 
 clearCloudButton.addEventListener('click', () => {
     cancelTopicEntry();
+    removeStructuredSummary();
+    presentationPlan = [];
     topicCloud.classList.add('clearing');
     setTimeout(() => {
         topicTags.forEach(tag => tag.remove());
