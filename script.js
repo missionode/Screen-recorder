@@ -500,12 +500,12 @@ function finalizeTopicCluster(topic) {
 }
 
 slide.addEventListener('click', event => {
-    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button, .topic-entry')) return;
+    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button, .topic-entry, .structured-summary')) return;
     openTopicEntry(event.clientX, event.clientY);
 });
 
 slide.addEventListener('dblclick', event => {
-    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button')) return;
+    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button, .structured-summary')) return;
     event.preventDefault();
     cancelTopicEntry();
     rearrangeTopicCloud();
@@ -848,6 +848,7 @@ async function copySlideScreenshot() {
 
     screenshotButton.disabled = true;
     slide.classList.add('capture-mode');
+    const captureLayout = prepareSummaryCapture();
     let imagePromise;
     try {
         imagePromise = (async () => {
@@ -908,9 +909,36 @@ async function copySlideScreenshot() {
             showScreenshotStatus('Could not create screenshot');
         }
     } finally {
+        restoreSummaryCapture(captureLayout);
         slide.classList.remove('capture-mode');
         screenshotButton.disabled = false;
     }
+}
+
+function prepareSummaryCapture() {
+    if (!structuredSummary) return null;
+    const layout = {
+        slideHeight: slide.style.height,
+        slideMinHeight: slide.style.minHeight,
+        summaryOverflow: structuredSummary.style.overflow,
+        summaryHeight: structuredSummary.style.height
+    };
+    const requiredHeight = structuredSummary.scrollHeight + 142;
+    slide.style.height = `${Math.max(slide.clientHeight, requiredHeight)}px`;
+    slide.style.minHeight = `${Math.max(slide.clientHeight, requiredHeight)}px`;
+    structuredSummary.style.height = 'auto';
+    structuredSummary.style.overflow = 'visible';
+    structuredSummary.classList.add('capture-expanded');
+    return layout;
+}
+
+function restoreSummaryCapture(layout) {
+    if (!layout || !structuredSummary) return;
+    slide.style.height = layout.slideHeight;
+    slide.style.minHeight = layout.slideMinHeight;
+    structuredSummary.style.overflow = layout.summaryOverflow;
+    structuredSummary.style.height = layout.summaryHeight;
+    structuredSummary.classList.remove('capture-expanded');
 }
 
 function downloadScreenshotBlob(blob) {
@@ -1228,6 +1256,13 @@ function removeStructuredSummary() {
     slide.classList.remove('structured-summary-mode');
 }
 
+function closeStructuredSummary() {
+    removeStructuredSummary();
+    presentationPlan = [];
+    screenshotButton.hidden = true;
+    clearCloudButton.hidden = true;
+}
+
 function clearRenderedCloud() {
     cancelTopicEntry();
     topicTags.forEach(tag => tag.remove());
@@ -1255,6 +1290,13 @@ function presentStructuredSummary() {
     structuredSummary = document.createElement('section');
     structuredSummary.className = 'structured-summary';
     structuredSummary.setAttribute('aria-label', 'Structured cloud summary');
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'structured-summary-close';
+    closeButton.setAttribute('aria-label', 'Close structured summary');
+    closeButton.title = 'Close summary';
+    closeButton.textContent = '×';
+    closeButton.addEventListener('click', closeStructuredSummary);
     const grid = document.createElement('div');
     grid.className = 'structured-summary-grid';
     groups.forEach((group, groupId) => {
@@ -1277,7 +1319,7 @@ function presentStructuredSummary() {
         card.append(title, description, tags);
         grid.appendChild(card);
     });
-    structuredSummary.appendChild(grid);
+    structuredSummary.append(closeButton, grid);
     slide.appendChild(structuredSummary);
     slide.classList.add('structured-summary-mode');
     screenshotButton.hidden = false;
