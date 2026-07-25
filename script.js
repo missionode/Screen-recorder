@@ -534,6 +534,12 @@ function openTopicEntry(clientX, clientY) {
     slide.append(dot, input);
     activeTopicEntry = { input, dot, x, y };
     input.focus();
+    input.addEventListener('input', () => {
+        if (!input.value) return;
+        const start = input.selectionStart;
+        input.value = input.value.charAt(0).toLocaleUpperCase() + input.value.slice(1);
+        input.setSelectionRange(start, start);
+    });
     input.addEventListener('keydown', event => {
         if (event.key === 'Enter') {
             event.preventDefault();
