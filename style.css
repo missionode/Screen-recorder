@@ -214,8 +214,8 @@ h1 {
     max-width: 590px;
     margin: 24px auto 0;
     color: var(--muted);
-    font-size: clamp(14px, 1.35vw, 17px);
-    line-height: 1.65;
+    font-size: clamp(13px, 1.2vw, 15px);
+    line-height: 1.55;
     outline: none;
 }
 

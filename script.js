@@ -95,6 +95,14 @@ const MAX_LOGO_HISTORY = 8;
 const TOPIC_COLORS = ['#547f9f', '#687da8', '#4f898f', '#7478a4', '#5d8194'];
 const TOPIC_SYMBOLS = ['●', '◆', '▲', '■', '✦', '⬢'];
 const TOPIC_SYMBOL_COLORS = ['#3b82f6', '#7c6ee6', '#1597a5', '#5b7fd6', '#8b6fc2', '#2686b8'];
+const DEFAULT_SUBTITLE = 'Capture your screen, tell your story, and share your best work—right from your browser.';
+const SUBTITLE_VARIANTS = [
+    'Make progress easier to explain, remember, and share.',
+    'Turn focused work into clear, shareable moments.',
+    'Give your best work the clarity it deserves.',
+    'Make your thinking visible, memorable, and easy to follow.',
+    'Bring structure to your thinking and confidence to your delivery.'
+];
 const CENTER_CLOUD_SAFE_WIDTH = 650;
 const PROTECTED_CLOUD_SELECTORS = [
     '.privacy-note', '.logo-area', '.eyebrow', '#heroTitle', '#heroSubtitle',
@@ -513,7 +521,7 @@ slide.addEventListener('dblclick', event => {
     rearrangeTopicCloud();
 });
 
-function openTopicEntry(clientX, clientY) {
+function openTopicEntry(clientX, clientY, initialText = '') {
     if (activeTopicEntry?.input.value.trim()) commitTopicEntry();
     else cancelTopicEntry();
     const bounds = slide.getBoundingClientRect();
@@ -534,6 +542,10 @@ function openTopicEntry(clientX, clientY) {
     slide.append(dot, input);
     activeTopicEntry = { input, dot, x, y };
     input.focus();
+    if (initialText) {
+        input.value = initialText.charAt(0).toLocaleUpperCase() + initialText.slice(1);
+        input.setSelectionRange(input.value.length, input.value.length);
+    }
     input.addEventListener('input', () => {
         if (!input.value) return;
         const start = input.selectionStart;
@@ -1265,7 +1277,7 @@ function advancePlannedTopic() {
             presentStructuredSummary();
         }, 25000);
         heroTitle.textContent = presentationCover?.title || 'Turn your ideas into moments worth sharing.';
-        heroSubtitle.textContent = presentationCover?.subtitle || 'Capture your screen, tell your story, and share your best work—right from your browser.';
+        heroSubtitle.textContent = presentationCover?.subtitle || getRandomSubtitle();
         requestAnimationFrame(arrangeTopicCloud);
         return;
     }
@@ -1541,13 +1553,18 @@ window.addEventListener('load', () => {
 function loadCustomization() {
     const saved = JSON.parse(localStorage.getItem(CUSTOMIZATION_STORAGE_KEY) || '{}');
     if (saved.title) heroTitle.textContent = saved.title;
-    if (saved.subtitle) heroSubtitle.textContent = saved.subtitle;
+    if (saved.subtitle && saved.subtitle !== DEFAULT_SUBTITLE) heroSubtitle.textContent = saved.subtitle;
+    else heroSubtitle.textContent = getRandomSubtitle();
     if (saved.logo) showLogo(saved.logo);
     if (saved.logo && !saved.logoHistory?.includes(saved.logo)) {
         saved.logoHistory = [saved.logo, ...(saved.logoHistory || [])].slice(0, MAX_LOGO_HISTORY);
         localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
     }
     renderLogoHistory();
+}
+
+function getRandomSubtitle() {
+    return SUBTITLE_VARIANTS[Math.floor(Math.random() * SUBTITLE_VARIANTS.length)];
 }
 
 function saveCustomization() {
@@ -2215,6 +2232,15 @@ let shortcutTimeout;
 window.addEventListener('keydown', (e) => {
     // Ignore if typing in an input field (though we don't have text inputs yet, it's good practice)
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        return;
+    }
+
+    const isEditable = document.activeElement?.isContentEditable;
+    const isModalOpen = setupDialog.classList.contains('open') || settingsPanel.classList.contains('open') || cloudPlannerPanel.classList.contains('open');
+    if (!isEditable && !isModalOpen && !isRecording && !e.metaKey && !e.ctrlKey && !e.altKey && /^[a-z]$/i.test(e.key)) {
+        const bounds = slide.getBoundingClientRect();
+        e.preventDefault();
+        openTopicEntry(bounds.left + bounds.width * .5, bounds.top + bounds.height * .72, e.key);
         return;
     }
 
