@@ -19,7 +19,7 @@ const setupBackdrop = document.getElementById('setupBackdrop');
 const setupDialog = document.getElementById('setupDialog');
 const setupCloseButton = document.getElementById('setupCloseButton');
 const setupFacecamToggle = document.getElementById('setupFacecamToggle');
-const setupMicrophoneToggle = document.getElementById('setupMicrophoneToggle');
+const setupAudioSource = document.getElementById('setupAudioSource');
 const chooseDestinationButton = document.getElementById('chooseDestinationButton');
 const confirmRecordingButton = document.getElementById('confirmRecordingButton');
 const destinationName = document.getElementById('destinationName');
@@ -68,6 +68,8 @@ let recordedChunks = [];
 let writableStream = null;
 let facecamStream = null;
 let facecamVideo = null;
+let recordingMicrophoneStream = null;
+let recordingAudioContext = null;
 let startTime;
 let pendingFileHandle = null;
 let activeTopicEntry = null;
@@ -1644,7 +1646,7 @@ confirmRecordingButton.addEventListener('click', () => {
     closeRecordingSetup();
     startRecording(selectedHandle, {
         facecam: setupFacecamToggle.checked,
-        microphone: setupMicrophoneToggle.checked
+        audioSource: setupAudioSource.value
     });
 });
 
@@ -1792,41 +1794,64 @@ function saveRecordingToList(fileName) {
 
 async function startRecording(fileHandle, options) {
     let audioStream;
+    let microphoneStream;
+    let audioContext;
 
     try {
         // Screen selection runs first and directly from the confirmation click.
-        const videoStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const wantsSystemSound = ['system', 'both'].includes(options.audioSource);
+        const wantsMicrophone = ['microphone', 'both'].includes(options.audioSource);
+        const videoStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: wantsSystemSound
+        });
 
         if (options.facecam) {
             try {
                 const cameraStream = await navigator.mediaDevices.getUserMedia({
-                    audio: options.microphone,
+                    audio: wantsMicrophone,
                     video: true
                 });
-                if (options.microphone) audioStream = new MediaStream(cameraStream.getAudioTracks());
+                if (wantsMicrophone) microphoneStream = new MediaStream(cameraStream.getAudioTracks());
                 facecamStream = new MediaStream(cameraStream.getVideoTracks());
             } catch (err) {
                 console.warn('Could not get camera or microphone. Continuing with screen only.', err);
-                if (options.microphone) {
+                if (wantsMicrophone) {
                     try {
-                        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     } catch (audioError) {
                         console.warn('Could not get microphone audio. Recording without audio.', audioError);
                     }
                 }
             }
-        } else if (options.microphone) {
+        } else if (wantsMicrophone) {
             try {
-                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             } catch (err) {
                 console.warn('Could not get microphone audio. Recording without audio.', err);
             }
         }
 
+        const systemTracks = wantsSystemSound ? videoStream.getAudioTracks() : [];
+        const microphoneTracks = microphoneStream?.getAudioTracks() || [];
+        recordingMicrophoneStream = microphoneStream;
+        if (systemTracks.length && microphoneTracks.length) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            recordingAudioContext = audioContext;
+            const destination = audioContext.createMediaStreamDestination();
+            audioContext.createMediaStreamSource(new MediaStream(systemTracks)).connect(destination);
+            audioContext.createMediaStreamSource(new MediaStream(microphoneTracks)).connect(destination);
+            audioStream = destination.stream;
+        } else if (systemTracks.length) {
+            audioStream = new MediaStream(systemTracks);
+        } else if (microphoneTracks.length) {
+            audioStream = new MediaStream(microphoneTracks);
+        }
+
         const videoTrack = videoStream.getVideoTracks()[0];
         videoTrack.onended = stopRecording;
 
-        const tracks = [...videoStream.getTracks()];
+        const tracks = [videoTrack];
         if (audioStream) tracks.push(...audioStream.getAudioTracks());
 
         stream = new MediaStream(tracks);
@@ -1875,6 +1900,8 @@ async function startRecording(fileHandle, options) {
     } catch (err) {
         console.error('Error starting recording:', err);
         if (audioStream) audioStream.getTracks().forEach(track => track.stop());
+        if (microphoneStream) microphoneStream.getTracks().forEach(track => track.stop());
+        if (audioContext) audioContext.close();
         if (facecamStream) facecamStream.getTracks().forEach(track => track.stop());
         if (stream) stream.getTracks().forEach(track => track.stop());
         popoutFacecamButton.hidden = true;
@@ -2024,6 +2051,14 @@ function stopRecording() {
     }
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
+    }
+    if (recordingMicrophoneStream) {
+        recordingMicrophoneStream.getTracks().forEach(track => track.stop());
+        recordingMicrophoneStream = null;
+    }
+    if (recordingAudioContext) {
+        recordingAudioContext.close();
+        recordingAudioContext = null;
     }
 
     // Stop facecam stream and remove video element

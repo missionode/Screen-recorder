@@ -427,6 +427,7 @@ h1 {
 .setup-option > span:first-child { flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .setup-option strong { color: #31465f; font-size: 12px; }
 .setup-option small { color: #93a0af; font-size: 10px; }
+.setup-audio-option select { min-width: 150px; padding: 8px 27px 8px 9px; border: 1px solid #cfdfed; border-radius: 9px; outline: none; color: #426887; background: white; font-family: inherit; font-size: 10px; font-weight: 700; cursor: pointer; }
 .setup-option input { position: absolute; opacity: 0; pointer-events: none; }
 .setup-option input:checked + .toggle { background: var(--blue); }
 .setup-option input:checked + .toggle::after { transform: translateX(16px); }

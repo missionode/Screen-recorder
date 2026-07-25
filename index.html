@@ -172,10 +172,14 @@
                     <input type="checkbox" id="setupFacecamToggle">
                     <span class="toggle" aria-hidden="true"></span>
                 </label>
-                <label class="setup-option" for="setupMicrophoneToggle">
-                    <span><strong>Microphone</strong><small>Include your voice in the recording</small></span>
-                    <input type="checkbox" id="setupMicrophoneToggle" checked>
-                    <span class="toggle" aria-hidden="true"></span>
+                <label class="setup-option setup-audio-option" for="setupAudioSource">
+                    <span><strong>Audio source</strong><small>Choose what the recording should hear</small></span>
+                    <select id="setupAudioSource" aria-label="Audio source">
+                        <option value="both" selected>Media and microphone</option>
+                        <option value="system">System sound</option>
+                        <option value="microphone">Microphone only</option>
+                        <option value="muted">Muted</option>
+                    </select>
                 </label>
             </div>
 
