@@ -61,6 +61,10 @@ const slidePresenterInput = document.getElementById('slidePresenterInput');
 const slidePresenterSkip = document.getElementById('slidePresenterSkip');
 const slidePresenterAdd = document.getElementById('slidePresenterAdd');
 const clearCloudButton = document.getElementById('clearCloudButton');
+const mindMapButton = document.getElementById('mindMapButton');
+const mindMapStatus = document.getElementById('mindMapStatus');
+const mindMapConnections = document.getElementById('mindMapConnections');
+const mindMapEdgesLayer = document.getElementById('mindMapEdges');
 
 let isRecording = false;
 let isStopping = false;
@@ -87,6 +91,13 @@ let addedTagReadoutTimer = null;
 let presentationPlan = [];
 let presentationCover = null;
 let structuredSummary = null;
+let mindMapMode = false;
+let mindMapNodes = [];
+let mindMapEdges = [];
+let mindMapLastNode = null;
+let mindMapActiveParent = null;
+let mindMapConnectionDrag = null;
+let mindMapCover = null;
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
@@ -581,6 +592,23 @@ function commitTopicEntry() {
 }
 
 function createTopicTag(text, x, y, topic = null) {
+    if (mindMapMode && !topic?.groupId) {
+        const index = mindMapNodes.length;
+        const bounds = slide.getBoundingClientRect();
+        const marginX = Math.max(95, Math.min(150, bounds.width * .12));
+        const columnGap = Math.max(150, Math.min(240, bounds.width * .16));
+        const rowGap = Math.max(70, Math.min(105, bounds.height * .12));
+        const parent = mindMapActiveParent || mindMapNodes[0] || null;
+        if (index === 0) {
+            x = marginX;
+            y = bounds.height * .5;
+        } else {
+            const siblingCount = parent?.childrenCount || 0;
+            const rowOffset = siblingCount === 0 ? 0 : (siblingCount % 2 ? Math.ceil(siblingCount / 2) : -siblingCount / 2);
+            x = Math.min(bounds.width - marginX, (parent?.x || marginX) + columnGap);
+            y = Math.max(85, Math.min(bounds.height - 70, (parent?.y || bounds.height * .5) + rowOffset * rowGap));
+        }
+    }
     const tag = document.createElement('span');
     tag.className = 'topic-tag settling';
     tag.title = text;
@@ -619,6 +647,29 @@ function createTopicTag(text, x, y, topic = null) {
     tag.style.setProperty('--float-delay', `${Math.random() * -3}s`);
     topicCloud.appendChild(tag);
     topicTags.push(tag);
+    updateMindMapAvailability();
+    if (mindMapMode && !topic?.groupId) {
+        const parentId = mindMapActiveParent?.id || mindMapNodes[0]?.id || null;
+        const node = { id: createPlannerId(), tag, x, y, parentId, childrenCount: 0 };
+        mindMapNodes.push(node);
+        const parentNode = parentId ? mindMapNodes.find(item => item.id === parentId) : null;
+        if (parentNode) {
+            mindMapEdges.push({ source: parentNode.id, target: node.id });
+            parentNode.childrenCount = (parentNode.childrenCount || 0) + 1;
+        }
+        mindMapLastNode = node;
+        attachMindMapDrag(node);
+        addMindMapConnectionHandle(node);
+        tag.addEventListener('click', event => {
+            if (!mindMapMode || event.target.closest('.mind-map-handle')) return;
+            mindMapActiveParent = node;
+            mindMapNodes.forEach(item => item.tag.classList.toggle('mind-map-parent', item === node));
+            updateMindMapStatus();
+        });
+        layoutMindMapNodes();
+        drawMindMapConnections();
+        updateMindMapStatus();
+    }
     if (!topic?.groupId) {
         tag.addEventListener('dblclick', event => {
             event.preventDefault();
@@ -633,9 +684,339 @@ function createTopicTag(text, x, y, topic = null) {
     clearCloudButton.hidden = false;
     setTimeout(() => {
         tag.classList.remove('settling');
-        arrangeTopicCloud();
-        setTimeout(() => tag.classList.add('clouded'), 1200);
+        if (!mindMapMode) arrangeTopicCloud();
+        else drawMindMapConnections();
+        setTimeout(() => { if (!mindMapMode) tag.classList.add('clouded'); }, 1200);
     }, 650);
+}
+
+function updateMindMapAvailability() {
+    const empty = topicTags.length === 0 && !structuredSummary && slidePresenter.hidden && !cloudPlannerPanel.classList.contains('open');
+    mindMapButton.hidden = !empty || mindMapMode;
+    mindMapStatus.hidden = !mindMapMode;
+}
+
+function activateMindMapMode() {
+    if (topicTags.length || structuredSummary || !slidePresenter.hidden) return;
+    mindMapMode = true;
+    mindMapCover = { title: heroTitle.textContent, subtitle: heroSubtitle.textContent };
+    heroTitle.textContent = 'Follow the idea. Find the connection.';
+    heroSubtitle.textContent = 'Start with one thought, then let your thinking take shape.';
+    mindMapStatus.textContent = 'Mind map · drag handle to connect';
+    mindMapNodes = [];
+    mindMapEdges = [];
+    mindMapLastNode = null;
+    mindMapActiveParent = null;
+    mindMapConnections.hidden = false;
+    mindMapConnections.style.display = 'block';
+    mindMapConnections.style.visibility = 'visible';
+    mindMapEdgesLayer.hidden = false;
+    slide.classList.add('mind-map-mode');
+    updateMindMapAvailability();
+}
+
+function updateMindMapStatus() {
+    mindMapStatus.textContent = mindMapActiveParent
+        ? `Adding to: ${mindMapActiveParent.tag.querySelector('.topic-tag-text')?.textContent || 'topic'}`
+        : 'Mind map · select a parent';
+}
+
+function layoutMindMapNodes() {
+    if (!mindMapNodes.length) return;
+    const bounds = slide.getBoundingClientRect();
+    const marginX = Math.max(82, Math.min(118, bounds.width * .08));
+    const marginY = Math.max(82, Math.min(110, bounds.height * .1));
+    const byId = new Map(mindMapNodes.map(node => [node.id, node]));
+    const depthOf = (node, seen = new Set()) => {
+        if (!node.parentId || !byId.has(node.parentId) || seen.has(node.id)) return 0;
+        seen.add(node.id);
+        return depthOf(byId.get(node.parentId), seen) + 1;
+    };
+    const columns = new Map();
+    mindMapNodes.forEach(node => {
+        node.depth = depthOf(node);
+        if (!columns.has(node.depth)) columns.set(node.depth, []);
+        columns.get(node.depth).push(node);
+    });
+    // Keep every depth column in parent order. With monotonic left-to-right
+    // routes this prevents branches from swapping vertical order and crossing.
+    const originalOrder = new Map(mindMapNodes.map((node, index) => [node.id, index]));
+    columns.forEach((nodes, depth) => {
+        if (depth === 0) return;
+        nodes.sort((a, b) => {
+            const parentA = byId.get(a.parentId);
+            const parentB = byId.get(b.parentId);
+            const parentDelta = (parentA?.y ?? 0) - (parentB?.y ?? 0);
+            return parentDelta || (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0);
+        });
+    });
+    const maxDepth = Math.max(...columns.keys());
+    const columnGap = maxDepth ? Math.max(125, (bounds.width - marginX * 2) / maxDepth) : 0;
+    columns.forEach((nodes, depth) => {
+        const rowGap = (bounds.height - marginY * 2) / (nodes.length + 1);
+        nodes.forEach((node, index) => {
+            node.x = Math.min(bounds.width - marginX, marginX + depth * columnGap);
+            node.y = marginY + rowGap * (index + 1);
+            node.tag.style.left = `${node.x}px`;
+            node.tag.style.top = `${node.y}px`;
+        });
+    });
+}
+
+function restoreMindMapCover() {
+    if (!mindMapCover) return;
+    heroTitle.textContent = mindMapCover.title;
+    heroSubtitle.textContent = mindMapCover.subtitle;
+    mindMapCover = null;
+}
+
+function drawMindMapConnections() {
+    mindMapConnections.replaceChildren();
+    mindMapEdgesLayer.replaceChildren();
+    const slideWidth = slide.clientWidth || slide.getBoundingClientRect().width;
+    const slideHeight = slide.clientHeight || slide.getBoundingClientRect().height;
+    mindMapConnections.setAttribute('viewBox', `0 0 ${slideWidth} ${slideHeight}`);
+    mindMapConnections.setAttribute('preserveAspectRatio', 'none');
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+    marker.setAttribute('id', 'mindMapArrow');
+    marker.setAttribute('markerWidth', '7');
+    marker.setAttribute('markerHeight', '7');
+    marker.setAttribute('refX', '6');
+    marker.setAttribute('refY', '3.5');
+    marker.setAttribute('orient', 'auto');
+    marker.setAttribute('markerUnits', 'userSpaceOnUse');
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    arrow.setAttribute('d', 'M0,0 L7,3.5 L0,7 Z');
+    arrow.setAttribute('fill', '#83a9c7');
+    arrow.style.fill = '#4f88aa';
+    marker.appendChild(arrow);
+    defs.appendChild(marker);
+    mindMapConnections.appendChild(defs);
+    const slideBounds = slide.getBoundingClientRect();
+    mindMapEdges.forEach(edge => {
+        const source = mindMapNodes.find(node => node.id === edge.source);
+        const target = mindMapNodes.find(node => node.id === edge.target);
+        if (!source || !target) return;
+        const sourceBounds = source.tag.getBoundingClientRect();
+        const targetBounds = target.tag.getBoundingClientRect();
+        const sourceX = sourceBounds.left - slideBounds.left + sourceBounds.width / 2;
+        const sourceY = sourceBounds.top - slideBounds.top + sourceBounds.height / 2;
+        const targetX = targetBounds.left - slideBounds.left + targetBounds.width / 2;
+        const targetY = targetBounds.top - slideBounds.top + targetBounds.height / 2;
+        const edgePoints = mindMapEdgePoints(sourceX, sourceY, sourceBounds.width / 2, sourceBounds.height / 2, targetX, targetY, targetBounds.width / 2, targetBounds.height / 2);
+        const startX = edgePoints.startX;
+        const startY = edgePoints.startY;
+        const endX = edgePoints.endX;
+        const endY = edgePoints.endY;
+        const childCount = mindMapEdges.filter(item => item.source === edge.source).length;
+        const curve = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const bend = Math.max(34, Math.abs(endX - startX) * .42);
+        curve.setAttribute('d', `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`);
+        curve.setAttribute('fill', 'none');
+        curve.setAttribute('stroke', childCount === 1 ? '#3f789d' : '#4f88aa');
+        curve.setAttribute('stroke-width', childCount === 1 ? '3.2' : '3');
+        curve.setAttribute('stroke-linecap', 'round');
+        curve.style.stroke = childCount === 1 ? '#3f789d' : '#4f88aa';
+        curve.style.strokeWidth = childCount === 1 ? '3.2px' : '3px';
+        curve.style.opacity = '1';
+        curve.setAttribute('marker-end', 'url(#mindMapArrow)');
+        curve.setAttribute('class', childCount === 1 ? 'single-child-curve' : 'branch-curve');
+        mindMapConnections.appendChild(curve);
+        const domEdge = document.createElement('span');
+        domEdge.className = `mind-map-edge interaction-edge${childCount === 1 ? ' single-child' : ''}`;
+        domEdge.style.left = `${startX}px`;
+        domEdge.style.top = `${startY}px`;
+        domEdge.style.width = `${Math.max(12, Math.hypot(endX - startX, endY - startY))}px`;
+        domEdge.style.transform = `rotate(${Math.atan2(endY - startY, endX - startX)}rad)`;
+        const endpoint = document.createElement('span');
+        endpoint.className = 'mind-map-edge-endpoint';
+        endpoint.setAttribute('aria-label', 'Reconnect this arrow');
+        endpoint.title = 'Drag to reconnect or remove';
+        endpoint.addEventListener('pointerdown', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            const preview = document.createElement('span');
+            preview.className = 'mind-map-edge preview';
+            mindMapEdgesLayer.appendChild(preview);
+            mindMapConnectionDrag = { edge, preview, sourceX, sourceY, rewiring: true };
+            endpoint.setPointerCapture?.(event.pointerId);
+        });
+        endpoint.addEventListener('pointermove', event => {
+            if (mindMapConnectionDrag?.edge !== edge) return;
+            updateMindMapPreview(event.clientX, event.clientY);
+        });
+        endpoint.addEventListener('pointerup', event => {
+            if (mindMapConnectionDrag?.edge !== edge) return;
+            const targetTag = document.elementFromPoint(event.clientX, event.clientY)?.closest('.topic-tag');
+            const target = mindMapNodes.find(item => item.tag === targetTag);
+            if (target && target.id !== edge.source) {
+                edge.target = target.id;
+                const targetNode = mindMapNodes.find(item => item.id === edge.target);
+                if (targetNode) targetNode.parentId = edge.source;
+            } else if (!target && window.confirm('Remove this connection?')) {
+                mindMapEdges.splice(mindMapEdges.indexOf(edge), 1);
+            }
+            mindMapConnectionDrag.preview.remove();
+            mindMapConnectionDrag = null;
+            layoutMindMapNodes();
+            drawMindMapConnections();
+            endpoint.releasePointerCapture?.(event.pointerId);
+        });
+        domEdge.appendChild(endpoint);
+        domEdge.addEventListener('pointerdown', event => {
+            if (event.target.closest('.mind-map-edge-endpoint')) return;
+            event.preventDefault();
+            const sourceNode = mindMapNodes.find(item => item.id === edge.source);
+            if (!sourceNode) return;
+            const preview = document.createElement('span');
+            preview.className = 'mind-map-edge preview';
+            mindMapEdgesLayer.appendChild(preview);
+            mindMapConnectionDrag = { edge, preview, sourceX, sourceY, rewiring: true };
+            domEdge.setPointerCapture?.(event.pointerId);
+        });
+        domEdge.addEventListener('pointermove', event => {
+            if (mindMapConnectionDrag?.edge === edge) updateMindMapPreview(event.clientX, event.clientY);
+        });
+        domEdge.addEventListener('pointerup', event => {
+            if (mindMapConnectionDrag?.edge !== edge) return;
+            const targetTag = document.elementFromPoint(event.clientX, event.clientY)?.closest('.topic-tag');
+            const target = mindMapNodes.find(item => item.tag === targetTag);
+            if (target && target.id !== edge.source) {
+                edge.target = target.id;
+                const targetNode = mindMapNodes.find(item => item.id === edge.target);
+                if (targetNode) targetNode.parentId = edge.source;
+            }
+            else if (!target && window.confirm('Remove this connection?')) mindMapEdges.splice(mindMapEdges.indexOf(edge), 1);
+            mindMapConnectionDrag.preview.remove();
+            mindMapConnectionDrag = null;
+            layoutMindMapNodes();
+            drawMindMapConnections();
+            domEdge.releasePointerCapture?.(event.pointerId);
+        });
+        mindMapEdgesLayer.appendChild(domEdge);
+    });
+}
+
+function mindMapEdgePoints(sx, sy, shw, shh, tx, ty, thw, thh) {
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const ux = dx / length;
+    const uy = dy / length;
+    const sourceScale = 1 / Math.max(Math.abs(ux) / Math.max(1, shw), Math.abs(uy) / Math.max(1, shh));
+    const targetScale = 1 / Math.max(Math.abs(ux) / Math.max(1, thw), Math.abs(uy) / Math.max(1, thh));
+    return {
+        startX: sx + ux * sourceScale,
+        startY: sy + uy * sourceScale,
+        endX: tx - ux * targetScale,
+        endY: ty - uy * targetScale
+    };
+}
+
+function addMindMapConnectionHandle(node) {
+    const handle = document.createElement('span');
+    handle.className = 'mind-map-handle';
+    handle.setAttribute('aria-label', 'Drag to connect this topic');
+    handle.title = 'Drag to connect';
+    handle.addEventListener('pointerdown', event => {
+        if (!mindMapMode || event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const bounds = slide.getBoundingClientRect();
+        const sourceBounds = node.tag.getBoundingClientRect();
+        const sourceX = sourceBounds.left - bounds.left + sourceBounds.width / 2;
+        const sourceY = sourceBounds.top - bounds.top + sourceBounds.height / 2;
+        const preview = document.createElement('span');
+        preview.className = 'mind-map-edge preview';
+        mindMapEdgesLayer.appendChild(preview);
+        mindMapConnectionDrag = { node, preview, sourceX, sourceY };
+        handle.setPointerCapture?.(event.pointerId);
+    });
+    handle.addEventListener('pointermove', event => {
+        if (!mindMapConnectionDrag) return;
+        updateMindMapPreview(event.clientX, event.clientY);
+    });
+    handle.addEventListener('pointerup', event => {
+        if (!mindMapConnectionDrag) return;
+        const targetTag = document.elementFromPoint(event.clientX, event.clientY)?.closest('.topic-tag');
+        const target = mindMapNodes.find(item => item.tag === targetTag);
+        if (target && target !== node && !mindMapEdges.some(edge => edge.source === node.id && edge.target === target.id)) {
+            mindMapEdges.push({ source: node.id, target: target.id });
+        }
+        mindMapConnectionDrag.preview.remove();
+        mindMapConnectionDrag = null;
+        drawMindMapConnections();
+        handle.releasePointerCapture?.(event.pointerId);
+    });
+    node.tag.appendChild(handle);
+}
+
+function updateMindMapPreview(clientX, clientY) {
+    if (!mindMapConnectionDrag) return;
+    const bounds = slide.getBoundingClientRect();
+    const x = clientX - bounds.left;
+    const y = clientY - bounds.top;
+    const dx = x - mindMapConnectionDrag.sourceX;
+    const dy = y - mindMapConnectionDrag.sourceY;
+    mindMapConnectionDrag.preview.style.left = `${mindMapConnectionDrag.sourceX}px`;
+    mindMapConnectionDrag.preview.style.top = `${mindMapConnectionDrag.sourceY}px`;
+    mindMapConnectionDrag.preview.style.width = `${Math.max(12, Math.hypot(dx, dy))}px`;
+    mindMapConnectionDrag.preview.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+}
+
+function attachMindMapDrag(node) {
+    let dragging = false;
+    let linking = false;
+    node.tag.addEventListener('pointerdown', event => {
+        if (!mindMapMode || event.button !== 0) return;
+        dragging = true;
+        linking = event.shiftKey;
+        node.tag.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+    });
+    node.tag.addEventListener('pointermove', event => {
+        if (!dragging) return;
+        const bounds = slide.getBoundingClientRect();
+        if (!linking) {
+            node.x = Math.max(12, Math.min(bounds.width - 12, event.clientX - bounds.left));
+            node.y = Math.max(28, Math.min(bounds.height - 28, event.clientY - bounds.top));
+            node.tag.style.left = `${node.x}px`;
+            node.tag.style.top = `${node.y}px`;
+        }
+        drawMindMapConnections();
+    });
+    node.tag.addEventListener('pointerup', event => {
+        if (!dragging) return;
+        dragging = false;
+        node.tag.releasePointerCapture?.(event.pointerId);
+        if (linking) {
+            const targetTag = document.elementFromPoint(event.clientX, event.clientY)?.closest('.topic-tag');
+            const target = mindMapNodes.find(item => item.tag === targetTag);
+            if (target && target !== node && !mindMapEdges.some(edge => edge.source === node.id && edge.target === target.id)) {
+                mindMapEdges.push({ source: node.id, target: target.id });
+            }
+            linking = false;
+            drawMindMapConnections();
+            return;
+        }
+        const bounds = slide.getBoundingClientRect();
+        const outside = event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom;
+        if (outside && window.confirm('Remove this topic and its connections?')) removeMindMapNode(node);
+        drawMindMapConnections();
+    });
+}
+
+function removeMindMapNode(node) {
+    node.tag.remove();
+    mindMapNodes = mindMapNodes.filter(item => item !== node);
+    mindMapEdges = mindMapEdges.filter(edge => edge.source !== node.id && edge.target !== node.id);
+    if (mindMapLastNode === node) mindMapLastNode = mindMapNodes[mindMapNodes.length - 1] || null;
+    if (mindMapActiveParent === node) {
+        mindMapActiveParent = null;
+        updateMindMapStatus();
+    }
+    drawMindMapConnections();
 }
 
 function editDirectTopicTag(tag) {
@@ -1351,6 +1732,7 @@ function removeStructuredSummary() {
     if (structuredSummary) structuredSummary.remove();
     structuredSummary = null;
     slide.classList.remove('structured-summary-mode');
+    updateMindMapAvailability();
 }
 
 function closeStructuredSummary() {
@@ -1373,9 +1755,19 @@ function clearRenderedCloud() {
     completedTopicLabels.clear();
     topicClusterCenters.clear();
     topicClusterLayouts.clear();
+    restoreMindMapCover();
+    mindMapMode = false;
+    mindMapNodes = [];
+    mindMapEdges = [];
+    mindMapLastNode = null;
+    mindMapConnections.replaceChildren();
+    mindMapConnections.hidden = true;
+    mindMapEdgesLayer.hidden = true;
+    slide.classList.remove('mind-map-mode');
     topicCloud.style.removeProperty('--cloud-density');
     screenshotButton.hidden = true;
     clearCloudButton.hidden = true;
+    updateMindMapAvailability();
 }
 
 function presentStructuredSummary() {
@@ -1450,16 +1842,30 @@ function renderPlannedTopic() {
 function setPlannerOpen(isOpen) {
     if (isOpen) {
         setSettingsOpen(false);
+        if (mindMapMode) {
+            restoreMindMapCover();
+            mindMapMode = false;
+            mindMapNodes = [];
+            mindMapEdges = [];
+            mindMapLastNode = null;
+            mindMapActiveParent = null;
+            mindMapConnections.replaceChildren();
+            mindMapConnections.hidden = true;
+            mindMapEdgesLayer.hidden = true;
+            slide.classList.remove('mind-map-mode');
+        }
         renderPlannerWorkspace();
     }
     cloudPlannerPanel.classList.toggle('open', isOpen);
     cloudPlannerPanel.setAttribute('aria-hidden', String(!isOpen));
     plannerButton.setAttribute('aria-expanded', String(isOpen));
     plannerBackdrop.hidden = !isOpen;
+    updateMindMapAvailability();
     if (isOpen) closePlannerButton.focus();
 }
 
 plannerButton.addEventListener('click', () => setPlannerOpen(true));
+mindMapButton.addEventListener('click', activateMindMapMode);
 closePlannerButton.addEventListener('click', () => setPlannerOpen(false));
 plannerBackdrop.addEventListener('click', () => setPlannerOpen(false));
 uploadPlannerCsvButton.addEventListener('click', () => plannerCsvInput.click());
@@ -1468,6 +1874,18 @@ clearCloudButton.addEventListener('click', () => {
     cancelTopicEntry();
     removeStructuredSummary();
     presentationPlan = [];
+    restoreMindMapCover();
+    mindMapMode = false;
+    mindMapNodes = [];
+    mindMapEdges = [];
+    mindMapLastNode = null;
+    mindMapActiveParent = null;
+    mindMapConnections.replaceChildren();
+    mindMapConnections.hidden = true;
+    mindMapEdgesLayer.hidden = true;
+    slide.classList.remove('mind-map-mode');
+    // Keep the button and its status label in sync while the clear animation runs.
+    updateMindMapAvailability();
     topicCloud.classList.add('clearing');
     setTimeout(() => {
         topicTags.forEach(tag => tag.remove());
@@ -1484,6 +1902,7 @@ clearCloudButton.addEventListener('click', () => {
         topicCloud.classList.remove('clearing');
         screenshotButton.hidden = true;
         clearCloudButton.hidden = true;
+        updateMindMapAvailability();
     }, 280);
 });
 
@@ -1619,6 +2038,7 @@ window.addEventListener('load', () => {
     loadRecordings();
     loadCustomization();
     loadPlannerData();
+    updateMindMapAvailability();
 });
 
 function loadCustomization() {
