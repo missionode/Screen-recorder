@@ -1260,6 +1260,12 @@ addPlannerTopicButton.addEventListener('click', () => {
 });
 
 openPresenterButton.addEventListener('click', () => {
+    const hasDirectTags = topicTags.some(tag => tag.dataset.cloudSource !== 'planner');
+    if (hasDirectTags) {
+        const proceed = window.confirm('Starting slide prompts will reset the current direct-entry tags. Continue?');
+        if (!proceed) return;
+        clearRenderedCloud();
+    }
     plannedTopics = plannerData.flatMap(group => group.terms
         .filter(term => term.selected && term.text.trim())
         .map(term => ({ term: term.text.trim(), context: group.topic.trim(), description: (group.description || '').trim(), groupId: group.id })));
@@ -1356,6 +1362,11 @@ function closeStructuredSummary() {
 
 function clearRenderedCloud() {
     cancelTopicEntry();
+    if (activeTopicEdit) {
+        activeTopicEdit.input.remove();
+        activeTopicEdit.tag.style.visibility = '';
+        activeTopicEdit = null;
+    }
     topicTags.forEach(tag => tag.remove());
     topicTags = [];
     completedTopicLabels.forEach(label => label.remove());
