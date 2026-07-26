@@ -75,6 +75,7 @@ let recordingAudioContext = null;
 let startTime;
 let pendingFileHandle = null;
 let activeTopicEntry = null;
+let activeTopicEdit = null;
 let topicTags = [];
 let plannedTopics = [];
 let plannedTopicIndex = 0;
@@ -510,12 +511,13 @@ function finalizeTopicCluster(topic) {
 }
 
 slide.addEventListener('click', event => {
-    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button, .topic-entry, .structured-summary')) return;
+    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button, .topic-entry, .topic-tag, .structured-summary')) return;
+    if (topicTags.some(tag => tag.dataset.cloudSource === 'planner') || !slidePresenter.hidden || structuredSummary) return;
     openTopicEntry(event.clientX, event.clientY);
 });
 
 slide.addEventListener('dblclick', event => {
-    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button, .structured-summary')) return;
+    if (event.target.closest('.slide-content, button, input, label, [contenteditable="true"], .settings-button, .planner-button, .topic-tag, .structured-summary')) return;
     event.preventDefault();
     cancelTopicEntry();
     rearrangeTopicCloud();
@@ -531,7 +533,7 @@ function openTopicEntry(clientX, clientY, initialText = '') {
     const dot = document.createElement('span');
     input.className = 'topic-entry';
     input.type = 'text';
-    input.maxLength = 36;
+    input.maxLength = 120;
     input.placeholder = 'Type a topic…';
     input.setAttribute('aria-label', 'Add a topic tag');
     input.style.left = `${x}px`;
@@ -581,6 +583,9 @@ function commitTopicEntry() {
 function createTopicTag(text, x, y, topic = null) {
     const tag = document.createElement('span');
     tag.className = 'topic-tag settling';
+    tag.title = text;
+    tag.dataset.tooltip = text;
+    tag.setAttribute('aria-label', text);
     const tagText = document.createElement('span');
     tagText.className = 'topic-tag-text';
     tagText.textContent = text;
@@ -614,6 +619,13 @@ function createTopicTag(text, x, y, topic = null) {
     tag.style.setProperty('--float-delay', `${Math.random() * -3}s`);
     topicCloud.appendChild(tag);
     topicTags.push(tag);
+    if (!topic?.groupId) {
+        tag.addEventListener('dblclick', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            editDirectTopicTag(tag);
+        });
+    }
     clearTimeout(addedTagReadoutTimer);
     addedTagReadout.textContent = text;
     addedTagReadout.hidden = false;
@@ -624,6 +636,51 @@ function createTopicTag(text, x, y, topic = null) {
         arrangeTopicCloud();
         setTimeout(() => tag.classList.add('clouded'), 1200);
     }, 650);
+}
+
+function editDirectTopicTag(tag) {
+    if (!tag || tag.dataset.cloudSource === 'planner' || activeTopicEdit) return;
+    cancelTopicEntry();
+    const tagBounds = tag.getBoundingClientRect();
+    const slideBounds = slide.getBoundingClientRect();
+    const editorWidth = Math.min(210, slideBounds.width - 30);
+    const centerX = tagBounds.left - slideBounds.left + tagBounds.width / 2;
+    const centerY = tagBounds.top - slideBounds.top + tagBounds.height / 2;
+    const x = Math.max(18, Math.min(centerX, slideBounds.width - editorWidth - 18));
+    const y = Math.max(35, Math.min(centerY, slideBounds.height - 35));
+    const input = document.createElement('input');
+    input.className = 'topic-entry';
+    input.type = 'text';
+    input.maxLength = 120;
+    input.value = tag.querySelector('.topic-tag-text')?.textContent || '';
+    input.setAttribute('aria-label', 'Edit topic tag');
+    input.style.left = `${x}px`;
+    input.style.top = `${y}px`;
+    slide.appendChild(input);
+    activeTopicEdit = { input, tag };
+    tag.style.visibility = 'hidden';
+    input.focus();
+    input.select();
+
+    const finish = save => {
+        if (!activeTopicEdit || activeTopicEdit.input !== input) return;
+        const value = input.value.trim();
+        if (save && value) {
+            const text = tag.querySelector('.topic-tag-text');
+            if (text) text.textContent = value;
+            tag.title = value;
+            tag.dataset.tooltip = value;
+        }
+        input.remove();
+        tag.style.visibility = '';
+        activeTopicEdit = null;
+        if (save && value) arrangeTopicCloud();
+    };
+    input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') { event.preventDefault(); finish(true); }
+        if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => setTimeout(() => finish(Boolean(input.value.trim())), 0));
 }
 
 function cancelTopicEntry() {
@@ -1348,6 +1405,9 @@ function presentStructuredSummary() {
         group.terms.forEach(term => {
             const tag = document.createElement('span');
             tag.textContent = term;
+            tag.title = term;
+            tag.dataset.tooltip = term;
+            tag.setAttribute('aria-label', term);
             tags.appendChild(tag);
         });
         card.append(title, description, tags);
@@ -2237,7 +2297,8 @@ window.addEventListener('keydown', (e) => {
 
     const isEditable = document.activeElement?.isContentEditable;
     const isModalOpen = setupDialog.classList.contains('open') || settingsPanel.classList.contains('open') || cloudPlannerPanel.classList.contains('open');
-    if (!isEditable && !isModalOpen && !isRecording && !e.metaKey && !e.ctrlKey && !e.altKey && /^[a-z]$/i.test(e.key)) {
+    const directEntryBlocked = topicTags.some(tag => tag.dataset.cloudSource === 'planner') || !slidePresenter.hidden || structuredSummary;
+    if (!isEditable && !isModalOpen && !isRecording && !directEntryBlocked && !e.metaKey && !e.ctrlKey && !e.altKey && /^[a-z]$/i.test(e.key)) {
         const bounds = slide.getBoundingClientRect();
         e.preventDefault();
         openTopicEntry(bounds.left + bounds.width * .5, bounds.top + bounds.height * .72, e.key);
