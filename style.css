@@ -460,11 +460,16 @@ h1 {
 .planner-search-field svg { width: 15px; height: 15px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 .planner-search-field input { min-width: 0; width: 100%; padding: 0; border: 0; outline: 0; color: #49657e; background: transparent; font-family: inherit; font-size: 11px; }
 .planner-search-field input::placeholder { color: #9eacb9; }
+.planner-search-button { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; border: 1px solid #cfe0ee; border-radius: 10px; color: #5d87a7; background: white; cursor: pointer; transition: border-color .18s, color .18s, background .18s, transform .18s; }
+.planner-search-button:hover, .planner-search-button:focus-visible { border-color: #83b5df; color: var(--blue); background: #f7fbff; transform: translateY(-1px); }
+.planner-search-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .planner-search-row > span { flex: 0 0 auto; color: #95a5b4; font-size: 9px; font-weight: 650; white-space: nowrap; }
 .planner-section-filter { flex: 0 0 190px; display: flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #dce7f1; border-radius: 11px; color: #8b9aaa; background: rgba(255,255,255,.82); font-size: 9px; font-weight: 750; white-space: nowrap; }
 .planner-section-filter select { min-width: 0; width: 100%; padding: 3px 20px 3px 0; border: 0; outline: 0; color: #49657e; background: transparent; font-family: inherit; font-size: 10px; font-weight: 700; text-overflow: ellipsis; }
-.planner-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; align-items: start; }
-.planner-section-divider { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; margin: 12px 0 -3px; padding: 0 2px 8px; border-bottom: 1px solid #d8e6f1; }
+.planner-groups { display: flex; flex-direction: column; gap: 22px; }
+.planner-section-block { min-width: 0; }
+.planner-section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; align-items: start; }
+.planner-section-divider { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; padding: 0 2px 8px; border-bottom: 1px solid #d8e6f1; }
 .planner-section-divider strong { color: #2f5878; font-size: 14px; letter-spacing: -.02em; }
 .planner-section-divider span { color: #91a1b0; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 .planner-group { padding: 18px; border: 1px solid #dfe9f2; border-radius: 16px; background: rgba(255,255,255,.88); box-shadow: 0 9px 25px rgba(45,84,121,.055); }
@@ -477,12 +482,15 @@ h1 {
 .planner-group-title:focus { border-color: #c7dceb; background: #f8fbfe; }
 .planner-group-section { width: 100%; margin: -4px 0 10px; padding: 5px 8px; border: 0; border-bottom: 1px solid #edf2f6; outline: none; color: #7b91a5; background: transparent; font-family: inherit; font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .planner-group-section:focus { border-color: #b8d3e8; color: #4f7fa2; background: #f8fbfe; }
-.planner-group-description { width: 100%; min-height: 56px; margin-bottom: 13px; resize: vertical; padding: 9px 10px; border: 1px solid #e2ebf3; border-radius: 9px; outline: none; color: #71859a; background: #f9fcfe; font-family: inherit; font-size: 10px; line-height: 1.45; }
+.planner-group-description { width: 100%; min-height: 56px; max-height: 92px; margin-bottom: 13px; resize: vertical; overflow-y: auto; padding: 9px 10px; border: 1px solid #e2ebf3; border-radius: 9px; outline: none; color: #71859a; background: #f9fcfe; font-family: inherit; font-size: 10px; line-height: 1.45; }
 .planner-group-description:focus { border-color: #b8d3e8; background: white; }
 .planner-group-description::placeholder { color: #a6b2be; }
 .planner-delete { width: 28px; height: 28px; border: 0; border-radius: 8px; color: #9aa8b5; background: #f3f7fa; cursor: pointer; }
 .planner-delete:hover { color: #dc5b61; }
-.planner-terms { display: flex; flex-direction: column; gap: 7px; }
+.planner-terms { max-height: 220px; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; padding-right: 3px; scrollbar-width: thin; scrollbar-color: #c9dbea transparent; }
+.planner-terms::-webkit-scrollbar { width: 4px; }
+.planner-terms::-webkit-scrollbar-track { background: transparent; }
+.planner-terms::-webkit-scrollbar-thumb { border-radius: 999px; background: #c9dbea; }
 .planner-term { display: grid; grid-template-columns: 20px 1fr 26px; align-items: center; gap: 7px; padding: 7px; border: 1px solid #e7eef4; border-radius: 10px; background: #fbfdff; }
 .planner-term input[type="checkbox"] { width: 14px; height: 14px; accent-color: #4f8bc4; cursor: pointer; }
 .planner-term-text { min-width: 0; width: 100%; min-height: 20px; padding: 4px 5px; overflow: hidden; resize: none; border: 0; outline: none; color: #58718a; background: transparent; font-family: inherit; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
@@ -505,6 +513,8 @@ h1 {
 .planner-footer { display: flex; align-items: center; gap: 8px; padding: 14px 28px; border-top: 1px solid #e2eaf2; background: rgba(255,255,255,.78); }
 .planner-footer button, .planner-footer a { padding: 10px; border: 1px solid #d5e2ed; border-radius: 9px; color: #607a92; background: white; font-size: 10px; font-weight: 700; line-height: normal; text-decoration: none; cursor: pointer; }
 .planner-footer button:hover, .planner-footer a:hover { border-color: #8eb9df; color: var(--blue); }
+.planner-footer .planner-clear-database { color: #b35d68; border-color: #eccfd3; background: #fffafb; }
+.planner-footer .planner-clear-database:hover { color: #a73d4c; border-color: #d99099; background: #fff4f5; }
 .planner-footer button:disabled { border-color: #e1e8ee; color: #a5b0bb; background: #edf2f6; cursor: not-allowed; }
 .planner-footer-note { flex: 1; color: #9ba8b5; font-size: 8px; }
 .planner-footer .open-presenter-button { min-width: 170px; border-color: #4f8bc4; color: white; background: #4f8bc4; }
@@ -612,7 +622,7 @@ h1 {
     .structured-summary-grid { grid-template-columns: 1fr; gap: 10px; }
     .structured-summary-mode .slide-content { top: 28px; width: calc(100% - 46px); }
     .planner-panel-header, .planner-body { padding-left: 18px; padding-right: 18px; }
-    .planner-groups { grid-template-columns: 1fr; }
+    .planner-section-grid { grid-template-columns: 1fr; }
     .planner-footer { flex-wrap: wrap; padding: 12px 18px; }
     .planner-footer-note { flex-basis: 100%; order: 3; text-align: center; }
     .planner-footer .open-presenter-button { flex: 1 0 100%; order: 4; }

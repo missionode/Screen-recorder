@@ -46,10 +46,12 @@ const plannerContext = document.getElementById('plannerContext');
 const plannerCsvInput = document.getElementById('plannerCsvInput');
 const uploadPlannerCsvButton = document.getElementById('uploadPlannerCsvButton');
 const downloadLatestCsvButton = document.getElementById('downloadLatestCsvButton');
+const clearPlannerDatabaseButton = document.getElementById('clearPlannerDatabaseButton');
 const plannerGroupsElement = document.getElementById('plannerGroups');
 const plannerEmpty = document.getElementById('plannerEmpty');
 const addPlannerTopicButton = document.getElementById('addPlannerTopicButton');
 const plannerSearch = document.getElementById('plannerSearch');
+const plannerSearchButton = document.getElementById('plannerSearchButton');
 const plannerSectionFilter = document.getElementById('plannerSectionFilter');
 const plannerSearchStatus = document.getElementById('plannerSearchStatus');
 const plannerBody = document.querySelector('.planner-body');
@@ -1428,17 +1430,48 @@ function savePlannerData() {
     updatePlannerSelection();
 }
 
+function normalizePlannerSection(section, group = {}) {
+    const topic = String(group.topic || '').toLowerCase();
+    const source = `${group.topic || ''} ${group.description || ''} ${(group.terms || []).map(term => term.text || '').join(' ')}`.toLowerCase();
+    const researchInterview = /user interview|customer interview|research interview|interview stakeholder|interviewing user|qualitative interview|stakeholder interview/.test(source);
+    if (researchInterview || /user research|research method|usability research|persona research/.test(source)) return 'UX Research & Strategy';
+    if (/resume|\bcv\b|\bats\b|linkedin|job offer|job search|candidate|portfolio|post-interview|interview bridging|interview preparation|mock interview/.test(source)) return 'Interview & Resume';
+    if (/psychology|behavior|cognitive|motivation|persuasion|habit|decision-making|commitment|progress|bias|laws of ux|nudge|fogg|fbm|trigger|social influence|gestalt|emotional design/.test(topic)) return 'Psychology & Behavior';
+    if (/research|persona|user story|user journey|service design|design thinking|problem framing|discovery|customer research|focus group|ethnograph|heuristic|usability testing|execution best practices|understand the user/.test(topic)) return 'UX Research & Strategy';
+    if (/communication|presentation|writing|copywriting|storytelling|professional email|non-verbal|language|microcopy|plain language/.test(topic)) return 'Communication & Content';
+    if (/\bai\b|artificial intelligence|generative|prompt|automation|agentic/.test(source)) return 'AI & Automation';
+    if (/accessib|inclusive|wcag|screen reader/.test(source)) return 'Accessibility & Inclusion';
+    if (/security|cyber|privacy|threat|authentication|secure ux/.test(source)) return 'Security & Privacy';
+    if (/seo|search engine|marketing|commerce|growth|conversion|funnel/.test(source)) return 'Digital Marketing & SEO';
+    if (/product management|product strategy|roadmap|product delivery|business execution|agile|backlog|requirements/.test(source)) return 'Product Management & Business';
+    if (/data|analytics|metric|experiment|dashboard|observability/.test(source)) return 'Data & Analytics';
+    if (/cloud|web|frontend|html|css|javascript|programming|software|architecture|hosting|domain|dns|mobile|performance|devops|database|digital concepts/.test(source)) return 'Web & Technology';
+    if (/brand|branding|logo|visual identity|typograph|color|graphic|illustration|photography|image format/.test(source)) return 'Branding & Visual Design';
+    if (/psychology|behavior|cognitive|motivation|persuasion|habit|decision|commitment|progress|bias|laws of ux/.test(source)) return 'Psychology & Behavior';
+    if (/learning|coaching|teaching|facilitat|workshop|training|curriculum|education/.test(source)) return 'Learning & Facilitation';
+    if (/communication|presentation|writing|copywriting|storytelling|professional email|non-verbal|language/.test(source)) return 'Communication & Content';
+    if (/research|persona|user story|user journey|service design|design thinking|problem framing|discovery|customer/.test(source)) return 'UX Research & Strategy';
+    if (/ux|ui|design|figma|wireframe|prototype|interaction|usability|visual hierarchy|design system|layout|grid/.test(source)) return 'UX/UI Design';
+    if (/career|freelance|self-taught|professional growth|career development|personal brand/.test(source)) return 'Career Development';
+    return 'Foundations & General';
+}
+
 function loadPlannerData() {
     try {
         const saved = JSON.parse(localStorage.getItem(CLOUD_PLANNER_STORAGE_KEY) || '[]');
         plannerData = Array.isArray(saved) ? saved : [];
+        let migrated = false;
         plannerData.forEach(group => {
-            group.section = String(group.section || 'Uncategorized').trim() || 'Uncategorized';
+            const normalizedSection = normalizePlannerSection(group.section, group);
+            if (group.section !== normalizedSection) migrated = true;
+            group.section = normalizedSection;
             group.terms = Array.isArray(group.terms) ? group.terms : [];
         });
         if (localStorage.getItem(CLOUD_PLANNER_SELECTION_MODE_KEY) !== 'opt-in-v1') {
             plannerData.forEach(group => group.terms?.forEach(term => { term.selected = false; }));
             localStorage.setItem(CLOUD_PLANNER_SELECTION_MODE_KEY, 'opt-in-v1');
+            localStorage.setItem(CLOUD_PLANNER_STORAGE_KEY, JSON.stringify(plannerData));
+        } else if (migrated) {
             localStorage.setItem(CLOUD_PLANNER_STORAGE_KEY, JSON.stringify(plannerData));
         }
     } catch (_) {
@@ -1464,9 +1497,10 @@ function renderPlannerWorkspace() {
             ...group.terms.map(term => term.text)
         ].some(value => (value || '').toLocaleLowerCase().includes(query)))
         : plannerData;
-    const filteredGroups = plannerSection === 'all'
-        ? visibleGroups
-        : visibleGroups.filter(group => (group.section || 'Uncategorized') === plannerSection);
+    const filteredGroups = (plannerSection === 'all'
+        ? [...visibleGroups]
+        : visibleGroups.filter(group => (group.section || 'Uncategorized') === plannerSection))
+        .sort((left, right) => (left.section || 'Uncategorized').localeCompare(right.section || 'Uncategorized'));
     plannerEmpty.hidden = filteredGroups.length > 0;
     const emptyTitle = plannerEmpty.querySelector('strong');
     const emptyDescription = plannerEmpty.querySelector('span');
@@ -1486,9 +1520,12 @@ function renderPlannerWorkspace() {
         : `${plannerData.length} ${plannerData.length === 1 ? 'topic' : 'topics'}`;
 
     let previousSection = null;
+    let sectionGrid = null;
     filteredGroups.forEach(group => {
         const section = group.section || 'Uncategorized';
         if (section !== previousSection) {
+            const sectionBlock = document.createElement('section');
+            sectionBlock.className = 'planner-section-block';
             const divider = document.createElement('div');
             divider.className = 'planner-section-divider';
             const title = document.createElement('strong');
@@ -1497,7 +1534,10 @@ function renderPlannerWorkspace() {
             const sectionCount = filteredGroups.filter(item => (item.section || 'Uncategorized') === section).length;
             count.textContent = `${sectionCount} ${sectionCount === 1 ? 'topic' : 'topics'}`;
             divider.append(title, count);
-            plannerGroupsElement.appendChild(divider);
+            sectionGrid = document.createElement('div');
+            sectionGrid.className = 'planner-section-grid';
+            sectionBlock.append(divider, sectionGrid);
+            plannerGroupsElement.appendChild(sectionBlock);
             previousSection = section;
         }
         const card = document.createElement('section');
@@ -1653,7 +1693,7 @@ function renderPlannerWorkspace() {
         });
         updateTopicSelectionState();
         card.append(header, sectionInput, description, terms, addTerm);
-        plannerGroupsElement.appendChild(card);
+        sectionGrid.appendChild(card);
     });
     updatePlannerSelection();
 }
@@ -1663,7 +1703,20 @@ function setPlannerBusy(isBusy) {
     plannerBody?.setAttribute('aria-busy', String(isBusy));
 }
 
-plannerSearch.addEventListener('input', renderPlannerWorkspace);
+function runPlannerSearch() {
+    setPlannerBusy(true);
+    requestAnimationFrame(() => {
+        renderPlannerWorkspace();
+        requestAnimationFrame(() => setPlannerBusy(false));
+    });
+}
+
+plannerSearchButton.addEventListener('click', runPlannerSearch);
+plannerSearch.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    runPlannerSearch();
+});
 plannerSectionFilter.addEventListener('change', () => {
     plannerSection = plannerSectionFilter.value;
     renderPlannerWorkspace();
@@ -2028,6 +2081,18 @@ downloadLatestCsvButton.addEventListener('click', () => {
     const csv = `${rows.map(row => row.map(escapeCsvCell).join(',')).join('\n')}\n`;
     const date = new Date().toISOString().slice(0, 10);
     downloadPlannerCsv(csv, `cloud-planner-${date}.csv`);
+});
+
+clearPlannerDatabaseButton.addEventListener('click', () => {
+    if (!plannerData.length) return;
+    const confirmed = window.confirm('Clear all saved Cloud Planner topics and categories from this browser? This cannot be undone.');
+    if (!confirmed) return;
+    localStorage.removeItem(CLOUD_PLANNER_STORAGE_KEY);
+    localStorage.removeItem(CLOUD_PLANNER_SELECTION_MODE_KEY);
+    plannerData = [];
+    plannerSection = 'all';
+    plannerSearch.value = '';
+    renderPlannerWorkspace();
 });
 
 function escapeCsvCell(value) {

@@ -133,6 +133,9 @@
                             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
                             <input id="plannerSearch" type="search" autocomplete="off" placeholder="Search topics, descriptions, or cloud terms">
                         </label>
+                        <button id="plannerSearchButton" class="planner-search-button" type="button" aria-label="Search topics" title="Search topics">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+                        </button>
                         <label class="planner-section-filter" for="plannerSectionFilter">
                             <span>Section</span>
                             <select id="plannerSectionFilter" aria-label="Filter topics by section">
@@ -165,6 +168,7 @@
                     <button id="uploadPlannerCsvButton" type="button">Upload CSV</button>
                     <a href="samples/cloud-planner-sample.csv" download="cloud-planner-sample.csv">Download sample</a>
                     <button id="downloadLatestCsvButton" type="button" disabled>Download latest CSV</button>
+                    <button id="clearPlannerDatabaseButton" class="planner-clear-database" type="button">Clear planner database</button>
                     <span class="planner-footer-note">Format: category, topic, description, cloud terms</span>
                     <button class="open-presenter-button" id="openPresenterButton" type="button" disabled>Start slide prompts <span id="selectedTermCount">0</span></button>
                 </footer>
