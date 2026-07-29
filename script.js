@@ -50,6 +50,7 @@ const plannerGroupsElement = document.getElementById('plannerGroups');
 const plannerEmpty = document.getElementById('plannerEmpty');
 const addPlannerTopicButton = document.getElementById('addPlannerTopicButton');
 const plannerSearch = document.getElementById('plannerSearch');
+const plannerSectionFilter = document.getElementById('plannerSectionFilter');
 const plannerSearchStatus = document.getElementById('plannerSearchStatus');
 const plannerBody = document.querySelector('.planner-body');
 const openPresenterButton = document.getElementById('openPresenterButton');
@@ -98,6 +99,7 @@ let mindMapLastNode = null;
 let mindMapActiveParent = null;
 let mindMapConnectionDrag = null;
 let mindMapCover = null;
+let plannerSection = 'all';
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
@@ -1430,6 +1432,10 @@ function loadPlannerData() {
     try {
         const saved = JSON.parse(localStorage.getItem(CLOUD_PLANNER_STORAGE_KEY) || '[]');
         plannerData = Array.isArray(saved) ? saved : [];
+        plannerData.forEach(group => {
+            group.section = String(group.section || 'Uncategorized').trim() || 'Uncategorized';
+            group.terms = Array.isArray(group.terms) ? group.terms : [];
+        });
         if (localStorage.getItem(CLOUD_PLANNER_SELECTION_MODE_KEY) !== 'opt-in-v1') {
             plannerData.forEach(group => group.terms?.forEach(term => { term.selected = false; }));
             localStorage.setItem(CLOUD_PLANNER_SELECTION_MODE_KEY, 'opt-in-v1');
@@ -1444,14 +1450,24 @@ function loadPlannerData() {
 function renderPlannerWorkspace() {
     plannerGroupsElement.innerHTML = '';
     const query = plannerSearch.value.trim().toLocaleLowerCase();
+    const sections = [...new Set(plannerData.map(group => group.section || 'Uncategorized'))];
+    const selectedSection = plannerSectionFilter.value || plannerSection;
+    plannerSection = sections.includes(selectedSection) ? selectedSection : 'all';
+    plannerSectionFilter.replaceChildren(new Option('All sections', 'all'));
+    sections.forEach(section => plannerSectionFilter.appendChild(new Option(section, section)));
+    plannerSectionFilter.value = plannerSection;
     const visibleGroups = query
         ? plannerData.filter(group => [
+            group.section,
             group.topic,
             group.description,
             ...group.terms.map(term => term.text)
         ].some(value => (value || '').toLocaleLowerCase().includes(query)))
         : plannerData;
-    plannerEmpty.hidden = visibleGroups.length > 0;
+    const filteredGroups = plannerSection === 'all'
+        ? visibleGroups
+        : visibleGroups.filter(group => (group.section || 'Uncategorized') === plannerSection);
+    plannerEmpty.hidden = filteredGroups.length > 0;
     const emptyTitle = plannerEmpty.querySelector('strong');
     const emptyDescription = plannerEmpty.querySelector('span');
     if (query && plannerData.length) {
@@ -1461,11 +1477,29 @@ function renderPlannerWorkspace() {
         emptyTitle.textContent = 'No topics prepared yet';
         emptyDescription.textContent = 'Upload a CSV or add your first topic manually.';
     }
-    plannerSearchStatus.textContent = query
-        ? `${visibleGroups.length} of ${plannerData.length} topics`
+    if (!filteredGroups.length && plannerData.length && !query) {
+        emptyTitle.textContent = 'No topics in this section';
+        emptyDescription.textContent = 'Choose another section or add a topic here.';
+    }
+    plannerSearchStatus.textContent = query || plannerSection !== 'all'
+        ? `${filteredGroups.length} of ${plannerData.length} topics`
         : `${plannerData.length} ${plannerData.length === 1 ? 'topic' : 'topics'}`;
 
-    visibleGroups.forEach(group => {
+    let previousSection = null;
+    filteredGroups.forEach(group => {
+        const section = group.section || 'Uncategorized';
+        if (section !== previousSection) {
+            const divider = document.createElement('div');
+            divider.className = 'planner-section-divider';
+            const title = document.createElement('strong');
+            title.textContent = section;
+            const count = document.createElement('span');
+            const sectionCount = filteredGroups.filter(item => (item.section || 'Uncategorized') === section).length;
+            count.textContent = `${sectionCount} ${sectionCount === 1 ? 'topic' : 'topics'}`;
+            divider.append(title, count);
+            plannerGroupsElement.appendChild(divider);
+            previousSection = section;
+        }
         const card = document.createElement('section');
         card.className = 'planner-group';
         card.dataset.groupId = group.id;
@@ -1552,6 +1586,17 @@ function renderPlannerWorkspace() {
             savePlannerData();
         });
 
+        const sectionInput = document.createElement('input');
+        sectionInput.className = 'planner-group-section';
+        sectionInput.value = group.section || 'Uncategorized';
+        sectionInput.placeholder = 'Section';
+        sectionInput.setAttribute('aria-label', `Section for ${group.topic || 'topic'}`);
+        sectionInput.addEventListener('change', () => {
+            group.section = sectionInput.value.trim() || 'Uncategorized';
+            savePlannerData();
+            renderPlannerWorkspace();
+        });
+
         const terms = document.createElement('div');
         terms.className = 'planner-terms';
         group.terms.forEach(term => {
@@ -1607,7 +1652,7 @@ function renderPlannerWorkspace() {
             plannerGroupsElement.querySelector(`[data-group-id="${group.id}"] .planner-term:last-child .planner-term-text`)?.focus();
         });
         updateTopicSelectionState();
-        card.append(header, description, terms, addTerm);
+        card.append(header, sectionInput, description, terms, addTerm);
         plannerGroupsElement.appendChild(card);
     });
     updatePlannerSelection();
@@ -1619,6 +1664,10 @@ function setPlannerBusy(isBusy) {
 }
 
 plannerSearch.addEventListener('input', renderPlannerWorkspace);
+plannerSectionFilter.addEventListener('change', () => {
+    plannerSection = plannerSectionFilter.value;
+    renderPlannerWorkspace();
+});
 
 function updatePlannerSelection() {
     const count = plannerData.reduce((total, group) => total + group.terms.filter(term => term.selected && term.text.trim()).length, 0);
@@ -1631,6 +1680,7 @@ addPlannerTopicButton.addEventListener('click', () => {
     plannerSearch.value = '';
     plannerData.push({
         id: createPlannerId(),
+        section: 'Uncategorized',
         topic: 'New topic',
         description: '',
         terms: [{ id: createPlannerId(), text: '', selected: false }]
@@ -1913,6 +1963,9 @@ plannerCsvInput.addEventListener('change', async () => {
         const rows = parseCsv(await file.text());
         if (rows.length < 2) throw new Error('CSV has no topic rows');
         const headers = rows[0].map(header => header.trim().toLowerCase().replace(/[_-]+/g, ' '));
+        const sectionColumn = headers.indexOf('category') >= 0
+            ? headers.indexOf('category')
+            : headers.indexOf('section');
         const topicColumn = headers.indexOf('topic');
         const descriptionColumn = headers.indexOf('description');
         const termsColumn = headers.findIndex(header => header === 'cloud terms' || header === 'cloud term');
@@ -1921,13 +1974,15 @@ plannerCsvInput.addEventListener('change', async () => {
         const importedGroups = new Map();
         rows.slice(1).forEach(row => {
             const context = (row[topicColumn] || '').trim();
+            const section = sectionColumn >= 0 ? (row[sectionColumn] || '').trim() : 'Uncategorized';
             const description = descriptionColumn >= 0 ? (row[descriptionColumn] || '').trim() : '';
             const termsValue = termsColumn === row.length - 1 ? row[termsColumn] : row.slice(termsColumn).join(',');
             if (!context) return;
-            if (!importedGroups.has(context.toLowerCase())) {
-                importedGroups.set(context.toLowerCase(), { id: createPlannerId(), topic: context, description, terms: [] });
+            const groupKey = `${section.toLowerCase()}\u0000${context.toLowerCase()}`;
+            if (!importedGroups.has(groupKey)) {
+                importedGroups.set(groupKey, { id: createPlannerId(), section: section || 'Uncategorized', topic: context, description, terms: [] });
             }
-            const group = importedGroups.get(context.toLowerCase());
+            const group = importedGroups.get(groupKey);
             String(termsValue || '').split(/[,;|\n]+/).forEach(value => {
                 const term = value.trim();
                 if (term && !group.terms.some(item => item.text.toLowerCase() === term.toLowerCase())) {
@@ -1938,7 +1993,10 @@ plannerCsvInput.addEventListener('change', async () => {
         const imported = [...importedGroups.values()].filter(group => group.terms.length);
         if (!imported.length) throw new Error('No cloud terms found');
         imported.forEach(incoming => {
-            const existing = plannerData.find(group => group.topic.trim().toLowerCase() === incoming.topic.toLowerCase());
+            const existing = plannerData.find(group =>
+                (group.section || 'Uncategorized').trim().toLowerCase() === incoming.section.trim().toLowerCase() &&
+                group.topic.trim().toLowerCase() === incoming.topic.toLowerCase()
+            );
             if (!existing) plannerData.push(incoming);
             else {
                 if (incoming.description) existing.description = incoming.description;
@@ -1951,16 +2009,17 @@ plannerCsvInput.addEventListener('change', async () => {
         renderPlannerWorkspace();
     } catch (error) {
         console.error('Could not import cloud planner CSV:', error);
-        alert('Could not read this CSV. Use the columns: topic, description, cloud terms.');
+        alert('Could not read this CSV. Use the columns: category, topic, description, cloud terms.');
     } finally {
         plannerCsvInput.value = '';
     }
 });
 
 downloadLatestCsvButton.addEventListener('click', () => {
-    const rows = [['topic', 'description', 'cloud terms']];
+    const rows = [['category', 'topic', 'description', 'cloud terms']];
     plannerData.forEach(group => {
         rows.push([
+            group.section || 'Uncategorized',
             group.topic || '',
             group.description || '',
             group.terms.map(term => term.text.trim()).filter(Boolean).join(', ')
