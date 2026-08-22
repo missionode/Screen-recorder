@@ -51,6 +51,9 @@
                 <button class="planner-button" id="plannerButton" type="button" aria-label="Open cloud planner" aria-expanded="false">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15.5h10a4 4 0 0 0 .4-8A5.8 5.8 0 0 0 6.5 9.2 3.2 3.2 0 0 0 7 15.5Z"/><path d="M9 19h6M12 15.5V19"/></svg>
                 </button>
+                <button class="prompt-button" id="promptButton" type="button" aria-label="Open private floating prompt" aria-pressed="false" title="Open private floating prompt">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4.5 3v-3H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg>
+                </button>
                 <button class="mind-map-button" id="mindMapButton" type="button" aria-label="Activate mind map mode" title="Activate mind map mode" hidden>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 11 7.5-4M8.2 13l7.5 4"/></svg>
                 </button>
@@ -197,7 +200,15 @@
                         <option value="muted">Muted</option>
                     </select>
                 </label>
+                <div class="setup-option setup-prompt-option">
+                    <span><strong>Private floating prompt</strong><small>Always on top; excluded when you capture a browser tab</small></span>
+                    <button id="setupPromptButton" type="button">Open prompt</button>
+                </div>
             </div>
+
+            <p class="prompt-privacy-note" id="promptPrivacyNote" hidden>
+                <strong>Privacy guard active.</strong> Select a browser tab in the share picker. The recording will stop before it starts if you select a window or entire screen.
+            </p>
 
             <div class="destination-box">
                 <span class="destination-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7.5h7l2 2h9v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V5a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v2.5"/></svg></span>

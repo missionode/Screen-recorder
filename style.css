@@ -340,7 +340,12 @@ h1 {
 .planner-button { position: absolute; top: 28px; right: 80px; z-index: 7; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid rgba(160,190,219,.55); border-radius: 12px; color: #68819a; background: rgba(255,255,255,.68); backdrop-filter: blur(10px); cursor: pointer; transition: .2s ease; }
 .planner-button:hover { color: var(--blue); background: white; transform: translateY(-1px); }
 .planner-button svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
-.mind-map-button { position: absolute; top: 28px; right: 130px; z-index: 7; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid rgba(160,190,219,.55); border-radius: 12px; color: #68819a; background: rgba(255,255,255,.68); backdrop-filter: blur(10px); cursor: pointer; transition: .2s ease; }
+.prompt-button { position: absolute; top: 28px; right: 130px; z-index: 7; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid rgba(160,190,219,.55); border-radius: 12px; color: #68819a; background: rgba(255,255,255,.68); backdrop-filter: blur(10px); cursor: pointer; transition: .2s ease; }
+.prompt-button:hover { color: var(--blue); background: white; transform: translateY(-1px); }
+.prompt-button.active { border-color: rgba(34,197,94,.48); color: #168448; background: rgba(240,253,244,.9); box-shadow: 0 0 0 4px rgba(34,197,94,.09); }
+.prompt-button:disabled { opacity: .45; cursor: not-allowed; }
+.prompt-button svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
+.mind-map-button { position: absolute; top: 28px; right: 180px; z-index: 7; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid rgba(160,190,219,.55); border-radius: 12px; color: #68819a; background: rgba(255,255,255,.68); backdrop-filter: blur(10px); cursor: pointer; transition: .2s ease; }
 .mind-map-button:hover { color: var(--blue); background: white; transform: translateY(-1px); }
 .mind-map-button svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
 .mind-map-status { position: absolute; top: 34px; right: 130px; z-index: 7; padding: 7px 10px; border: 1px solid rgba(160,190,219,.55); border-radius: 9px; color: #557590; background: rgba(255,255,255,.78); font-size: 9px; font-weight: 750; letter-spacing: .04em; }
@@ -405,7 +410,7 @@ h1 {
 @keyframes presenterIn { from { opacity: 0; translate: 12px -50%; } to { opacity: 1; translate: 0 -50%; } }
 @keyframes screenshotIn { from { opacity: 0; scale: .85; } to { opacity: 1; scale: 1; } }
 .slide.presenter-active .settings-button, .slide.presenter-active .planner-button { visibility: hidden; opacity: 0; pointer-events: none; }
-.slide.capture-mode .controls, .slide.capture-mode .settings-button, .slide.capture-mode .planner-button, .slide.capture-mode .screenshot-button, .slide.capture-mode .clear-cloud-button, .slide.capture-mode .screenshot-status, .slide.capture-mode .slide-presenter { visibility: hidden !important; }
+.slide.capture-mode .controls, .slide.capture-mode .settings-button, .slide.capture-mode .planner-button, .slide.capture-mode .prompt-button, .slide.capture-mode .screenshot-button, .slide.capture-mode .clear-cloud-button, .slide.capture-mode .screenshot-status, .slide.capture-mode .slide-presenter { visibility: hidden !important; }
 .slide.capture-mode .topic-tag, .slide.capture-mode .completed-topic-label, .slide.capture-mode .slide-glow { animation-play-state: paused !important; }
 .slide.capture-mode .topic-tag { animation: none !important; translate: 0 0 !important; scale: 1 !important; transition: none !important; }
 .panel-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(16,35,63,.16); backdrop-filter: blur(2px); }
@@ -561,6 +566,13 @@ h1 {
 .setup-option input { position: absolute; opacity: 0; pointer-events: none; }
 .setup-option input:checked + .toggle { background: var(--blue); }
 .setup-option input:checked + .toggle::after { transform: translateX(16px); }
+.setup-prompt-option { cursor: default; }
+#setupPromptButton { flex: 0 0 auto; padding: 8px 11px; border: 1px solid #a8c8e2; border-radius: 8px; color: #38698e; background: #f7fbff; font-size: 10px; font-weight: 750; cursor: pointer; }
+#setupPromptButton:hover { border-color: #6ba5d3; color: var(--blue); background: white; }
+#setupPromptButton.active { border-color: rgba(34,197,94,.5); color: #168448; background: #f0fdf4; }
+#setupPromptButton:disabled { border-color: #dbe4ec; color: #9aa7b4; background: #f1f4f7; cursor: not-allowed; }
+.prompt-privacy-note { margin: 13px 0 0; padding: 10px 12px; border: 1px solid rgba(74,151,105,.24); border-radius: 10px; color: #527364; background: #f2fbf6; font-size: 9px; line-height: 1.45; }
+.prompt-privacy-note strong { color: #237348; }
 .destination-box { display: flex; align-items: center; gap: 12px; margin: 16px 0; padding: 13px; border: 1px solid #dce8f3; border-radius: 14px; background: #f7fbff; }
 .destination-icon { width: 35px; height: 35px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: #4f8bc4; background: #e7f3fe; }
 .destination-icon svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -605,10 +617,11 @@ h1 {
     .slide-number { right: 25px; bottom: 22px; }
     .settings-button { top: 18px; right: 18px; }
     .planner-button { top: 18px; right: 68px; }
+    .prompt-button { top: 18px; right: 118px; }
     .planner-search-row { align-items: stretch; flex-wrap: wrap; }
     .planner-section-filter { flex: 1 1 180px; }
     .planner-search-row > span { align-self: center; }
-    .mind-map-button { top: 18px; right: 118px; }
+    .mind-map-button { top: 18px; right: 168px; }
     .mind-map-status { top: 24px; right: 18px; }
     .screenshot-button { left: 20px; bottom: 18px; }
     .clear-cloud-button { top: 18px; left: 18px; }

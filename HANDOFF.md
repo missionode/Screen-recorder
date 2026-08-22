@@ -6,6 +6,7 @@ The app is a browser-based screen recorder with:
 
 - Editable slide title, subtitle, and logo.
 - Screen recording with optional microphone and facecam.
+- A semi-transparent private prompt in Document Picture-in-Picture, with saved notes, opacity and text-size controls, and a strict browser-tab capture guard.
 - Seekable WebM finalization through `ts-ebml`.
 - High-resolution lossless PNG screenshot capture.
 - Manual cloud tags added directly on the slide.
@@ -105,6 +106,15 @@ Still worth validating visually:
 - Preserve geometric markers in screenshots as real DOM elements.
 - Keep screenshot export as high-resolution lossless PNG.
 - Preserve multiline planner terms and readout formatting.
+
+## Private prompt behavior
+
+- Open it from the speech-bubble button, recording setup, or `Cmd/Ctrl+Shift+P` while this app has focus.
+- The prompt uses Document Picture-in-Picture so it stays above browser tabs, other windows, and fullscreen content where the browser/OS permits Picture-in-Picture.
+- Prompt text, opacity, and font size are stored locally under `screenRecorderPrivatePrompt`.
+- A browser cannot exclude one arbitrary window from monitor/window capture. When the prompt is open, recording therefore fails closed unless `MediaStreamTrack.getSettings().displaySurface` reports `browser`.
+- The capture chooser is biased toward tab capture and monitor capture/surface switching are disabled when supported.
+- Current Chrome or Edge is required; unsupported browsers show the launcher as unavailable.
 
 ## Validation checklist
 

@@ -20,6 +20,8 @@ const setupDialog = document.getElementById('setupDialog');
 const setupCloseButton = document.getElementById('setupCloseButton');
 const setupFacecamToggle = document.getElementById('setupFacecamToggle');
 const setupAudioSource = document.getElementById('setupAudioSource');
+const setupPromptButton = document.getElementById('setupPromptButton');
+const promptPrivacyNote = document.getElementById('promptPrivacyNote');
 const chooseDestinationButton = document.getElementById('chooseDestinationButton');
 const confirmRecordingButton = document.getElementById('confirmRecordingButton');
 const destinationName = document.getElementById('destinationName');
@@ -39,6 +41,7 @@ const plannerSuggestion = document.getElementById('plannerSuggestion');
 const skipTopicButton = document.getElementById('skipTopicButton');
 const addTopicButton = document.getElementById('addTopicButton');
 const plannerButton = document.getElementById('plannerButton');
+const promptButton = document.getElementById('promptButton');
 const plannerBackdrop = document.getElementById('plannerBackdrop');
 const cloudPlannerPanel = document.getElementById('cloudPlannerPanel');
 const closePlannerButton = document.getElementById('closePlannerButton');
@@ -102,11 +105,13 @@ let mindMapActiveParent = null;
 let mindMapConnectionDrag = null;
 let mindMapCover = null;
 let plannerSection = 'all';
+let privatePromptCaptureGuarded = false;
 
 const RECORDING_STORAGE_KEY = 'screenRecordings';
 const CUSTOMIZATION_STORAGE_KEY = 'screenRecorderCustomization';
 const CLOUD_PLANNER_STORAGE_KEY = 'screenRecorderCloudPlanner';
 const CLOUD_PLANNER_SELECTION_MODE_KEY = 'screenRecorderCloudPlannerSelectionMode';
+const PRIVATE_PROMPT_STORAGE_KEY = 'screenRecorderPrivatePrompt';
 const MAX_LOGO_HISTORY = 8;
 const TOPIC_COLORS = ['#547f9f', '#687da8', '#4f898f', '#7478a4', '#5d8194'];
 const TOPIC_SYMBOLS = ['●', '◆', '▲', '■', '✦', '⬢'];
@@ -2163,6 +2168,7 @@ window.addEventListener('load', () => {
     loadCustomization();
     loadPlannerData();
     updateMindMapAvailability();
+    updatePrivatePromptControls();
 });
 
 function loadCustomization() {
@@ -2304,6 +2310,196 @@ clearLogoHistoryButton.addEventListener('click', () => {
     renderLogoHistory();
 });
 
+function isPrivatePromptOpen() {
+    const pipWindow = window.currentPiPWindow;
+    return Boolean(pipWindow && !pipWindow.closed && pipWindow.document.body?.dataset.privatePrompt === 'true');
+}
+
+function readPrivatePromptSettings() {
+    try {
+        return JSON.parse(localStorage.getItem(PRIVATE_PROMPT_STORAGE_KEY) || '{}');
+    } catch (_) {
+        return {};
+    }
+}
+
+function updatePrivatePromptControls() {
+    const supported = 'documentPictureInPicture' in window;
+    const isOpen = isPrivatePromptOpen();
+    promptButton.disabled = !supported;
+    setupPromptButton.disabled = !supported;
+    promptButton.classList.toggle('active', isOpen);
+    promptButton.setAttribute('aria-pressed', String(isOpen));
+    promptButton.title = supported
+        ? (isOpen ? 'Private prompt is open' : 'Open private floating prompt')
+        : 'Private floating prompts require Chrome or Edge';
+    setupPromptButton.classList.toggle('active', isOpen);
+    setupPromptButton.textContent = isOpen ? 'Prompt open' : (supported ? 'Open prompt' : 'Not supported');
+    promptPrivacyNote.hidden = !isOpen;
+}
+
+async function openPrivatePrompt() {
+    if (!('documentPictureInPicture' in window)) {
+        alert('Private floating prompts require a current version of Chrome or Edge.');
+        return;
+    }
+
+    if (isPrivatePromptOpen()) {
+        window.currentPiPWindow.focus();
+        return;
+    }
+
+    if (isRecording && !privatePromptCaptureGuarded) {
+        alert('For privacy, open the prompt before starting the recording, then select a browser tab in the share picker.');
+        return;
+    }
+
+    if (window.currentPiPWindow && !window.currentPiPWindow.closed) {
+        alert('Close the existing floating presenter before opening the private prompt.');
+        return;
+    }
+
+    try {
+        const pipWindow = await window.documentPictureInPicture.requestWindow({
+            width: 430,
+            height: 280,
+            disallowReturnToOpener: true,
+            preferInitialWindowPlacement: true
+        });
+        window.currentPiPWindow = pipWindow;
+        pipWindow.document.title = 'Private prompt';
+        pipWindow.document.body.dataset.privatePrompt = 'true';
+
+        const style = pipWindow.document.createElement('style');
+        style.textContent = `
+            :root { color-scheme: dark; --prompt-opacity: .78; --prompt-font-size: 22px; }
+            * { box-sizing: border-box; }
+            html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+            body { padding: 7px; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+            .prompt-shell { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(255,255,255,.2); border-radius: 18px; color: #f7fbff; background: rgba(10,24,40,var(--prompt-opacity)); box-shadow: 0 18px 45px rgba(0,0,0,.28); backdrop-filter: blur(18px) saturate(130%); }
+            .prompt-toolbar { min-height: 40px; display: flex; align-items: center; gap: 7px; padding: 7px 8px 6px 12px; border-bottom: 1px solid rgba(255,255,255,.1); }
+            .privacy-badge { display: inline-flex; align-items: center; gap: 6px; color: #a7edc3; font-size: 8px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+            .privacy-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 0 3px rgba(74,222,128,.14); }
+            .toolbar-spacer { flex: 1; }
+            button { min-width: 27px; height: 27px; display: grid; place-items: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #d8e7f5; background: rgba(255,255,255,.08); font-family: inherit; font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; }
+            button:hover, button:focus-visible { outline: none; border-color: rgba(147,197,253,.55); background: rgba(147,197,253,.16); }
+            .close-button { color: #ffcad0; }
+            textarea { flex: 1; min-height: 0; width: 100%; resize: none; overflow-y: auto; padding: 18px 20px; border: 0; outline: none; color: #f8fbff; background: transparent; font-family: inherit; font-size: var(--prompt-font-size); font-weight: 650; line-height: 1.48; letter-spacing: -.015em; caret-color: #93c5fd; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.24) transparent; }
+            textarea::placeholder { color: rgba(220,234,246,.43); }
+            .prompt-footer { min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 6px 11px; border-top: 1px solid rgba(255,255,255,.1); color: rgba(220,234,246,.64); font-size: 8px; }
+            .prompt-footer label { display: flex; align-items: center; gap: 6px; }
+            .prompt-footer input { width: 70px; accent-color: #7db8e8; }
+            .prompt-footer span { margin-left: auto; }
+            body.collapsed { padding: 5px; }
+            body.collapsed .prompt-shell { border-radius: 13px; }
+            body.collapsed textarea, body.collapsed .prompt-footer { display: none; }
+            body.collapsed .prompt-toolbar { height: 100%; border-bottom: 0; }
+        `;
+        pipWindow.document.head.appendChild(style);
+
+        const shell = pipWindow.document.createElement('section');
+        shell.className = 'prompt-shell';
+        shell.setAttribute('aria-label', 'Private floating prompt');
+        const toolbar = pipWindow.document.createElement('header');
+        toolbar.className = 'prompt-toolbar';
+        const badge = pipWindow.document.createElement('span');
+        badge.className = 'privacy-badge';
+        badge.textContent = 'Tab-capture safe';
+        badge.title = 'This separate window is excluded from browser-tab recordings';
+        const spacer = pipWindow.document.createElement('span');
+        spacer.className = 'toolbar-spacer';
+        const smallerButton = pipWindow.document.createElement('button');
+        smallerButton.type = 'button';
+        smallerButton.textContent = 'A−';
+        smallerButton.title = 'Smaller text';
+        const largerButton = pipWindow.document.createElement('button');
+        largerButton.type = 'button';
+        largerButton.textContent = 'A+';
+        largerButton.title = 'Larger text';
+        const collapseButton = pipWindow.document.createElement('button');
+        collapseButton.type = 'button';
+        collapseButton.textContent = '—';
+        collapseButton.title = 'Hide prompt text';
+        const closeButton = pipWindow.document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'close-button';
+        closeButton.textContent = '×';
+        closeButton.title = 'Close prompt';
+        toolbar.append(badge, spacer, smallerButton, largerButton, collapseButton, closeButton);
+
+        const promptInput = pipWindow.document.createElement('textarea');
+        promptInput.setAttribute('aria-label', 'Prompt text');
+        promptInput.placeholder = 'Type or paste your speaking notes here…';
+        promptInput.spellcheck = true;
+        const saved = readPrivatePromptSettings();
+        promptInput.value = saved.text || '';
+
+        const footer = pipWindow.document.createElement('footer');
+        footer.className = 'prompt-footer';
+        const opacityLabel = pipWindow.document.createElement('label');
+        opacityLabel.textContent = 'Opacity';
+        const opacityInput = pipWindow.document.createElement('input');
+        opacityInput.type = 'range';
+        opacityInput.min = '45';
+        opacityInput.max = '95';
+        opacityInput.value = String(saved.opacity || 78);
+        opacityInput.setAttribute('aria-label', 'Prompt opacity');
+        opacityLabel.appendChild(opacityInput);
+        const privacyHint = pipWindow.document.createElement('span');
+        privacyHint.textContent = 'Record a tab only';
+        footer.append(opacityLabel, privacyHint);
+        shell.append(toolbar, promptInput, footer);
+        pipWindow.document.body.appendChild(shell);
+
+        let fontSize = Math.max(14, Math.min(42, Number(saved.fontSize) || 22));
+        const savePrompt = () => localStorage.setItem(PRIVATE_PROMPT_STORAGE_KEY, JSON.stringify({
+            text: promptInput.value,
+            opacity: Number(opacityInput.value),
+            fontSize
+        }));
+        const applyAppearance = () => {
+            pipWindow.document.documentElement.style.setProperty('--prompt-opacity', String(Number(opacityInput.value) / 100));
+            pipWindow.document.documentElement.style.setProperty('--prompt-font-size', `${fontSize}px`);
+        };
+        applyAppearance();
+
+        promptInput.addEventListener('input', savePrompt);
+        opacityInput.addEventListener('input', () => {
+            applyAppearance();
+            savePrompt();
+        });
+        smallerButton.addEventListener('click', () => {
+            fontSize = Math.max(14, fontSize - 2);
+            applyAppearance();
+            savePrompt();
+        });
+        largerButton.addEventListener('click', () => {
+            fontSize = Math.min(42, fontSize + 2);
+            applyAppearance();
+            savePrompt();
+        });
+        collapseButton.addEventListener('click', () => {
+            const collapsed = pipWindow.document.body.classList.toggle('collapsed');
+            collapseButton.textContent = collapsed ? '□' : '—';
+            collapseButton.title = collapsed ? 'Show prompt text' : 'Hide prompt text';
+            if (!collapsed) promptInput.focus();
+        });
+        closeButton.addEventListener('click', () => pipWindow.close());
+        pipWindow.addEventListener('pagehide', () => {
+            if (window.currentPiPWindow === pipWindow) window.currentPiPWindow = null;
+            updatePrivatePromptControls();
+        }, { once: true });
+        updatePrivatePromptControls();
+        promptInput.focus();
+    } catch (error) {
+        console.warn('Could not open the private floating prompt:', error);
+        updatePrivatePromptControls();
+    }
+}
+
+promptButton.addEventListener('click', openPrivatePrompt);
+setupPromptButton.addEventListener('click', openPrivatePrompt);
+
 toggleRecordingBtn.addEventListener('click', () => {
     if (isRecording) {
         stopRecording();
@@ -2314,6 +2510,7 @@ toggleRecordingBtn.addEventListener('click', () => {
 
 function openRecordingSetup() {
     setSettingsOpen(false);
+    updatePrivatePromptControls();
     pendingFileHandle = null;
     chooseDestinationButton.textContent = 'Choose';
     destinationName.textContent = 'Choose where to save';
@@ -2510,15 +2707,33 @@ async function startRecording(fileHandle, options) {
     let audioStream;
     let microphoneStream;
     let audioContext;
+    const privatePromptRequested = isPrivatePromptOpen();
+    privatePromptCaptureGuarded = false;
 
     try {
         // Screen selection runs first and directly from the confirmation click.
         const wantsSystemSound = ['system', 'both'].includes(options.audioSource);
         const wantsMicrophone = ['microphone', 'both'].includes(options.audioSource);
-        const videoStream = await navigator.mediaDevices.getDisplayMedia({
+        const displayOptions = {
             video: true,
             audio: wantsSystemSound
-        });
+        };
+        if (privatePromptRequested) {
+            displayOptions.preferCurrentTab = true;
+            displayOptions.selfBrowserSurface = 'include';
+            displayOptions.surfaceSwitching = 'exclude';
+            displayOptions.monitorTypeSurfaces = 'exclude';
+        }
+        const videoStream = await navigator.mediaDevices.getDisplayMedia(displayOptions);
+        const videoTrack = videoStream.getVideoTracks()[0];
+        const selectedSurface = videoTrack?.getSettings().displaySurface;
+
+        if (privatePromptRequested && selectedSurface !== 'browser') {
+            videoStream.getTracks().forEach(track => track.stop());
+            alert('Private prompt protection requires browser-tab capture. Select a single browser tab—not a window or entire screen—and try again.');
+            return;
+        }
+        privatePromptCaptureGuarded = privatePromptRequested;
 
         if (options.facecam) {
             try {
@@ -2562,7 +2777,6 @@ async function startRecording(fileHandle, options) {
             audioStream = new MediaStream(microphoneTracks);
         }
 
-        const videoTrack = videoStream.getVideoTracks()[0];
         videoTrack.onended = stopRecording;
 
         const tracks = [videoTrack];
@@ -2581,7 +2795,7 @@ async function startRecording(fileHandle, options) {
             facecamVideo.style.left = `${window.innerWidth - 180}px`;
             document.body.appendChild(facecamVideo);
             makeDraggable(facecamVideo);
-            popoutFacecamButton.hidden = !('documentPictureInPicture' in window);
+            popoutFacecamButton.hidden = !('documentPictureInPicture' in window) || isPrivatePromptOpen();
         }
 
         if ('mediaSession' in navigator && (facecamStream || (plannedTopics.length && audioStream))) {
@@ -2619,6 +2833,7 @@ async function startRecording(fileHandle, options) {
         if (facecamStream) facecamStream.getTracks().forEach(track => track.stop());
         if (stream) stream.getTracks().forEach(track => track.stop());
         popoutFacecamButton.hidden = true;
+        privatePromptCaptureGuarded = false;
     }
 }
 
@@ -2807,6 +3022,7 @@ function stopRecording() {
     toggleRecordingBtn.classList.remove('recording');
     stream = null;
     mediaRecorder = null;
+    privatePromptCaptureGuarded = false;
     isStopping = false;
 }
 
@@ -2845,6 +3061,12 @@ const shortcutDisplay = document.getElementById('shortcut-display');
 let shortcutTimeout;
 
 window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        openPrivatePrompt();
+        return;
+    }
+
     // Ignore if typing in an input field (though we don't have text inputs yet, it's good practice)
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
         return;
